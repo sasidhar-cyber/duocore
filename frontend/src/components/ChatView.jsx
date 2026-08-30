@@ -550,7 +550,13 @@ export function ChatView({ onOpenInvite }) {
             const isMe = msg.sender_id === user?.id;
 
             let meta = {};
-            try { meta = JSON.parse(msg.metadata || '{}'); } catch {}
+            if (msg.metadata) {
+              if (typeof msg.metadata === 'object') {
+                meta = msg.metadata;
+              } else if (typeof msg.metadata === 'string') {
+                try { meta = JSON.parse(msg.metadata); } catch (e) { meta = {}; }
+              }
+            }
 
             return (
               <div
