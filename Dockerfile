@@ -12,6 +12,7 @@ WORKDIR /app/backend
 RUN apt-get update && apt-get install -y python3 make g++ gcc curl && rm -rf /var/lib/apt/lists/*
 COPY backend/package*.json ./
 RUN npm install --production
+RUN npm rebuild better-sqlite3
 RUN mkdir -p bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o bin/yt-dlp && chmod +x bin/yt-dlp
 COPY backend/ ./
 
