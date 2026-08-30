@@ -36,7 +36,10 @@ import {
   Play,
   Music2,
   Disc3,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft,
+  Share2,
+  UserPlus
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -103,7 +106,7 @@ function AudioMemoPlayer({ fileUrl }) {
   );
 }
 
-export function ChatView({ onOpenInvite }) {
+export function ChatView({ onOpenInvite, onBack }) {
   const { user } = useAuth();
   const {
     roomData,
@@ -118,7 +121,7 @@ export function ChatView({ onOpenInvite }) {
 
   const { playTrack, openNowPlaying } = useMusic();
 
-  const otherPartner = partner || (members && members.find((m) => m.id !== user?.id)) || {
+  const otherPartner = partner || (members && members.find((m) => m && m.id !== user?.id)) || {
     id: 'partner-default',
     username: 'Duo Partner',
     is_online: false,
@@ -379,6 +382,16 @@ export function ChatView({ onOpenInvite }) {
       {/* ========================================================================= */}
       <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all mr-1 shrink-0"
+              title="Back to Music Player"
+            >
+              <ArrowLeft className="w-4 h-4 text-emerald-400" />
+            </button>
+          )}
+
           <div className="relative shrink-0">
             <img
               src={partnerAvatar}

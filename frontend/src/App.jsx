@@ -11,7 +11,8 @@ import { QueueDrawer } from './components/QueueDrawer';
 import { PlaylistModal } from './components/PlaylistModal';
 import { StatsModal } from './components/StatsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
-import { DuoChatScreen } from './components/DuoChatScreen';
+import { ChatView } from './components/ChatView';
+import { InviteModal } from './components/InviteModal';
 import { NetworkStatusBanner } from './components/NetworkStatusBanner';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { AuthPage } from './pages/AuthPage';
@@ -20,9 +21,10 @@ import api from './services/api';
 function AppContent() {
   const { user, loading } = useAuth();
   const { refreshPartnerState } = useRoom();
-  const { isNowPlayingOpen, closeNowPlaying, playTrack } = useMusic();
+  const { isNowPlayingOpen, closeNowPlaying, playTrack, currentTrack } = useMusic();
   const [authOpen, setAuthOpen] = useState(false);
-  const [isDuoChatOpen, setIsDuoChatOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('music'); // 'music' | 'chat'
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   // Check URL query parameters for 1-Click invite links & direct song deep links
   useEffect(() => {
@@ -39,7 +41,7 @@ function AppContent() {
           try {
             await api.acceptInvite(cleanCode);
             await refreshPartnerState();
-            setIsDuoChatOpen(true);
+            setActiveTab('chat');
           } catch (e) {
             console.warn('[Auto Invite Join] Error:', e);
           }
@@ -56,7 +58,7 @@ function AppContent() {
         }
 
         if (action === 'chat') {
-          setIsDuoChatOpen(true);
+          setActiveTab('chat');
         }
       } catch (e) {}
     };
@@ -65,6 +67,17 @@ function AppContent() {
       handleUrlActions();
     }
   }, [loading, refreshPartnerState]);
+
+  // Global Keyboard Panic / Back to Music key (Esc)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && activeTab === 'chat') {
+        setActiveTab('music');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab]);
 
   if (loading) {
     return (
@@ -88,6 +101,31 @@ function AppContent() {
     return <AuthPage onAuthenticated={() => setAuthOpen(false)} />;
   }
 
+  // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT
+  if (activeTab === 'chat') {
+    return (
+      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-1 sm:p-4 select-none relative overflow-hidden">
+        <NetworkStatusBanner />
+
+        <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">
+          <ChatView
+            onBack={() => setActiveTab('music')}
+            onOpenInvite={() => setInviteModalOpen(true)}
+          />
+        </div>
+
+        <InviteModal
+          isOpen={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
+        />
+
+        {/* Global sticky player if audio is active */}
+        {currentTrack && <MusicPlayerBar />}
+      </div>
+    );
+  }
+
+  // 🎵 MUSIC TAB: FULL MUSIC STREAMING HOME
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-white relative">
       {/* Offline / Online Network Indicator */}
@@ -98,7 +136,7 @@ function AppContent() {
 
       <Navbar
         onOpenAuth={() => setAuthOpen(true)}
-        onOpenChat={() => setIsDuoChatOpen(true)}
+        onOpenChat={() => setActiveTab('chat')}
       />
 
       <main className="flex-1">
@@ -128,12 +166,6 @@ function AppContent() {
 
       {/* Keyboard Shortcuts Help Modal */}
       <KeyboardShortcutsModal />
-
-      {/* 1v1 Duo Chat Screen with PIN Security (1234) */}
-      <DuoChatScreen
-        isOpen={isDuoChatOpen}
-        onClose={() => setIsDuoChatOpen(false)}
-      />
     </div>
   );
 }
