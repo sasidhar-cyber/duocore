@@ -33,7 +33,8 @@ import {
   Video,
   Phone,
   CheckCheck,
-  Bell
+  Bell,
+  ChevronLeft
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -118,6 +119,9 @@ export function ChatView({ onOpenInvite }) {
   const otherMembers = useMemo(() => members.filter((m) => m.id !== user?.id), [members, user?.id]);
   const [selectedFriend, setSelectedFriend] = useState(null);
 
+  // Mobile Screen View State: 'contacts' (view contacts list) | 'conversation' (view active chat)
+  const [mobileScreen, setMobileScreen] = useState('contacts');
+
   // Unread badge counts map: userId -> count
   const [unreadCounts, setUnreadCounts] = useState({});
 
@@ -164,13 +168,6 @@ export function ChatView({ onOpenInvite }) {
 
   const savedPin = localStorage.getItem('duocore_vault_pin') || '1234';
 
-  // Auto-select first friend if none selected
-  useEffect(() => {
-    if (!selectedFriend && otherMembers.length > 0) {
-      setSelectedFriend(otherMembers[0]);
-    }
-  }, [otherMembers, selectedFriend]);
-
   // Compute active channel ID for current friend & mode
   const currentChannelId = useMemo(() => {
     if (!selectedFriend || !user) return 'normal';
@@ -180,14 +177,14 @@ export function ChatView({ onOpenInvite }) {
 
   // Fetch message history for active conversation
   const loadActiveMessages = useCallback(async () => {
-    if (!roomData || !currentChannelId) return;
+    if (!roomData || !currentChannelId || !selectedFriend) return;
     try {
       const res = await api.getRoomMessages(roomData.id, currentChannelId);
       setMessages(res.messages || []);
     } catch (err) {
       console.error('[ChatView] Failed to load messages:', err);
     }
-  }, [currentChannelId, roomData]);
+  }, [currentChannelId, roomData, selectedFriend]);
 
   useEffect(() => {
     loadActiveMessages();
@@ -276,6 +273,7 @@ export function ChatView({ onOpenInvite }) {
     setSelectedFriend(friend);
     setChatMode('direct');
     setIsPrivateUnlocked(false);
+    setMobileScreen('conversation'); // Switch to active chat on mobile
 
     // Clear unread count for this friend
     setUnreadCounts((prev) => ({
@@ -283,6 +281,11 @@ export function ChatView({ onOpenInvite }) {
       [friend.id]: 0
     }));
 
+    playSound('click');
+  };
+
+  const handleBackToContacts = () => {
+    setMobileScreen('contacts');
     playSound('click');
   };
 
@@ -322,7 +325,10 @@ export function ChatView({ onOpenInvite }) {
     setIncomingCall(null);
     if (call) {
       const friend = otherMembers.find((m) => m.id === call.caller.id);
-      if (friend) setSelectedFriend(friend);
+      if (friend) {
+        setSelectedFriend(friend);
+        setMobileScreen('conversation');
+      }
       setVideoCallOpen(true);
       playSound('quiz_correct');
     }
@@ -647,7 +653,7 @@ export function ChatView({ onOpenInvite }) {
   const isSelectedFriendTyping = selectedFriend && typingMap[selectedFriend.id];
 
   return (
-    <div className="flex h-full glass-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden bg-slate-950/95 relative">
+    <div className="flex h-full w-full glass-panel rounded-2xl sm:rounded-3xl border border-slate-800 shadow-2xl overflow-hidden bg-slate-950/95 relative">
       <input
         type="file"
         ref={fileInputRef}
@@ -664,12 +670,12 @@ export function ChatView({ onOpenInvite }) {
             if (friend) handleSelectFriend(friend);
             setToastNotification(null);
           }}
-          className="absolute top-4 right-4 z-50 p-3.5 rounded-2xl bg-slate-900/95 border border-pink-500/50 shadow-2xl flex items-center gap-3 cursor-pointer animate-in slide-in-from-top-4 duration-200 max-w-sm"
+          className="absolute top-3 right-3 left-3 sm:left-auto z-50 p-3 sm:p-3.5 rounded-2xl bg-slate-900/95 border border-pink-500/50 shadow-2xl flex items-center gap-3 cursor-pointer animate-in slide-in-from-top-4 duration-200 sm:max-w-sm"
         >
           <img
             src={toastNotification.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
             alt={toastNotification.username}
-            className="w-10 h-10 rounded-xl object-cover ring-2 ring-pink-500/50"
+            className="w-9 h-9 rounded-xl object-cover ring-2 ring-pink-500/50 shrink-0"
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between">
@@ -682,23 +688,29 @@ export function ChatView({ onOpenInvite }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 1. LEFT SIDEBAR: WHATSAPP-STYLE CHATS / FRIENDS LIST (280px)              */}
+      {/* 1. CONTACTS / FRIENDS LIST (WhatsApp Left Sidebar)                        */}
+      {/* On mobile: visible when mobileScreen === 'contacts'                       */}
+      {/* On desktop (md:): always visible as 320px left column                     */}
       {/* ========================================================================= */}
-      <div className="w-72 sm:w-80 border-r border-slate-800 bg-slate-950/90 flex flex-col shrink-0">
+      <div
+        className={`${
+          mobileScreen === 'contacts' ? 'flex' : 'hidden'
+        } md:flex w-full md:w-80 border-r border-slate-800 bg-slate-950/90 flex-col shrink-0 h-full overflow-hidden`}
+      >
         {/* User Header + Invite CTA */}
-        <div className="p-3.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="p-3 sm:p-3.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <div className="relative shrink-0">
               <img
                 src={user?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=duocore'}
                 alt={user?.username}
-                className="w-9 h-9 rounded-xl object-cover ring-1 ring-pink-500/50"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover ring-1 ring-pink-500/50"
               />
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950" />
             </div>
             <div className="min-w-0">
               <h4 className="text-xs font-black text-white truncate">{user?.username}</h4>
-              <p className="text-[10px] text-pink-300 font-mono">Chats & Friends</p>
+              <p className="text-[10px] text-pink-300 font-mono">Chats & Squad</p>
             </div>
           </div>
 
@@ -713,15 +725,15 @@ export function ChatView({ onOpenInvite }) {
         </div>
 
         {/* Search Input */}
-        <div className="p-3 border-b border-slate-800/80">
+        <div className="p-2.5 sm:p-3 border-b border-slate-800/80">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
             <input
               type="text"
               placeholder="Search chats or friends..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-pink-500/40"
+              className="w-full pl-8 pr-3 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-pink-500/40"
             />
           </div>
         </div>
@@ -743,7 +755,7 @@ export function ChatView({ onOpenInvite }) {
                     onClick={() => handleSelectFriend(m)}
                     className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all relative ${
                       isSelected
-                        ? 'bg-slate-900/90 border border-pink-500/50 shadow-md shadow-pink-900/10 scale-[1.01]'
+                        ? 'bg-slate-900/90 border border-pink-500/50 shadow-md shadow-pink-900/10'
                         : 'hover:bg-slate-900/50 border border-transparent'
                     }`}
                   >
@@ -813,78 +825,94 @@ export function ChatView({ onOpenInvite }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. RIGHT SIDE: ACTIVE 1v1 DIRECT CHAT (WHATSAPP STYLE)                    */}
+      {/* 2. ACTIVE 1v1 DIRECT CHAT CONVERSATION                                    */}
+      {/* On mobile: visible when mobileScreen === 'conversation'                   */}
+      {/* On desktop (md:): always visible in remaining width                       */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
+      <div
+        className={`${
+          mobileScreen === 'conversation' ? 'flex' : 'hidden'
+        } md:flex flex-1 flex-col h-full overflow-hidden bg-slate-950`}
+      >
         {selectedFriend ? (
           <>
-            {/* 1v1 Active Chat Header with Call & Video Actions */}
-            <div className="p-3.5 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            {/* 1v1 Active Chat Header with Mobile Back Button */}
+            <div className="p-2.5 sm:p-3.5 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                {/* Mobile Back Button to Contacts List */}
+                <button
+                  onClick={handleBackToContacts}
+                  className="md:hidden p-1.5 -ml-1 rounded-xl text-pink-400 hover:bg-slate-900 hover:text-white flex items-center gap-0.5 text-xs font-bold shrink-0"
+                  title="Back to All Chats"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  <span className="text-[11px]">Chats</span>
+                </button>
+
                 <div className="relative shrink-0">
                   <img
                     src={selectedFriend.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
                     alt={selectedFriend.username}
-                    className="w-10 h-10 rounded-2xl object-cover ring-2 ring-indigo-500/50"
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl object-cover ring-2 ring-indigo-500/50"
                   />
-                  <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-950" />
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 border-2 border-slate-950" />
                 </div>
 
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-black text-white truncate">{selectedFriend.username}</h3>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-xs sm:text-sm font-black text-white truncate">{selectedFriend.username}</h3>
                     {selectedRank && (
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${selectedRank.badgeColor}`}>
+                      <span className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded font-bold border ${selectedRank.badgeColor} hidden sm:inline-block`}>
                         {selectedRank.icon} {selectedRank.title}
                       </span>
                     )}
                   </div>
                   {isSelectedFriendTyping ? (
-                    <p className="text-[11px] text-emerald-400 font-bold animate-pulse">
+                    <p className="text-[10px] sm:text-[11px] text-emerald-400 font-bold animate-pulse">
                       typing a message...
                     </p>
                   ) : (
-                    <p className="text-[11px] text-cyan-300 font-medium truncate mt-0.5 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>{selectedFriend.current_topic || 'Cybersecurity & Linux Labs'}</span>
+                    <p className="text-[10px] sm:text-[11px] text-cyan-300 font-medium truncate flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      <span className="truncate">{selectedFriend.current_topic || 'Online'}</span>
                     </p>
                   )}
                 </div>
               </div>
 
               {/* Header Right Actions: Audio Call, Video Call, and Vault Exit */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 {/* Audio Voice Call Button */}
                 <button
                   onClick={() => handleStartCall('audio')}
-                  className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 hover:text-white transition-all shadow-sm"
+                  className="p-2 sm:p-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 hover:text-white transition-all shadow-sm"
                   title="Start Audio Call"
                 >
-                  <Phone className="w-4 h-4" />
+                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
 
                 {/* HD Video Call Button */}
                 <button
                   onClick={() => handleStartCall('video')}
-                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/30 transition-all"
+                  className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1 sm:gap-1.5 shadow-md shadow-cyan-600/30 transition-all"
                   title="Start HD Video Call"
                 >
                   <Video className="w-3.5 h-3.5" />
-                  <span>Video Call</span>
+                  <span className="hidden sm:inline">Video Call</span>
                 </button>
 
                 {chatMode === 'vault' ? (
                   <button
                     onClick={() => { setChatMode('direct'); playSound('click'); }}
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all"
+                    className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold flex items-center gap-1 transition-all"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Exit Vault</span>
+                    <span className="hidden sm:inline">Exit Vault</span>
                   </button>
                 ) : (
                   <button
                     onClick={onOpenInvite}
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all"
+                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all hidden sm:block"
                     title="Add Friends to Squad"
                   >
                     <UserPlus className="w-4 h-4" />
@@ -896,20 +924,20 @@ export function ChatView({ onOpenInvite }) {
             {/* Chat Content: Vault PIN Screen OR Active Messages Stream */}
             {chatMode === 'vault' && !isPrivateUnlocked ? (
               /* PASSKEY PIN LOCK SCREEN FOR VAULT */
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-5 animate-in fade-in">
-                <div className="w-16 h-16 rounded-3xl bg-purple-950/80 border border-purple-500/40 flex items-center justify-center text-3xl shadow-xl shadow-purple-900/30">
+              <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 text-center space-y-4 animate-in fade-in">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-purple-950/80 border border-purple-500/40 flex items-center justify-center text-2xl sm:text-3xl shadow-xl shadow-purple-900/30">
                   🔒
                 </div>
 
                 <div className="space-y-1 max-w-sm">
-                  <h3 className="text-base font-black text-white">Private Vault with {selectedFriend.username}</h3>
+                  <h3 className="text-sm sm:text-base font-black text-white">Private Vault with {selectedFriend.username}</h3>
                   <p className="text-xs text-slate-400">
                     Enter your 4-digit Passkey PIN to unlock private messages, photos, and voice notes.
                   </p>
                 </div>
 
                 {pinError && (
-                  <div className="p-2.5 px-4 rounded-xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs">
+                  <div className="p-2 px-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs">
                     {pinError}
                   </div>
                 )}
@@ -920,7 +948,7 @@ export function ChatView({ onOpenInvite }) {
                       type="password"
                       maxLength={6}
                       required
-                      placeholder="Enter Passkey PIN (Default: 1234)"
+                      placeholder="Enter PIN (Default: 1234)"
                       value={enteredPin}
                       onChange={(e) => setEnteredPin(e.target.value)}
                       className="w-full glass-input rounded-2xl px-4 py-3 text-center text-sm font-mono tracking-widest text-purple-300 placeholder:text-slate-600"
@@ -976,17 +1004,17 @@ export function ChatView({ onOpenInvite }) {
             ) : (
               <>
                 {/* Message Stream */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4">
                   {messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-3">
-                      <div className="w-14 h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-2xl">
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-xl sm:text-2xl">
                         💬
                       </div>
                       <div>
-                        <h4 className="text-sm font-bold text-slate-300">
+                        <h4 className="text-xs sm:text-sm font-bold text-slate-300">
                           Chatting with {selectedFriend.username}
                         </h4>
-                        <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1 max-w-xs">
                           Send a message, voice note, photo, or PDF to get the conversation started!
                         </p>
                       </div>
@@ -999,26 +1027,26 @@ export function ChatView({ onOpenInvite }) {
                       return (
                         <div
                           key={msg.id}
-                          className={`flex gap-3 group animate-in fade-in ${
+                          className={`flex gap-2 sm:gap-3 group animate-in fade-in ${
                             isMe ? 'flex-row-reverse' : 'flex-row'
                           }`}
                         >
                           <img
                             src={msg.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
                             alt={msg.username}
-                            className="w-8 h-8 rounded-xl object-cover ring-1 ring-slate-800 shrink-0 self-end mb-1"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-cover ring-1 ring-slate-800 shrink-0 self-end mb-1"
                           />
 
                           <div className={`max-w-[85%] sm:max-w-[75%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                            <div className="flex items-center gap-2 px-1">
-                              <span className="text-[10px] font-bold text-slate-400">{msg.username}</span>
-                              <span className="text-[9px] text-slate-600 font-mono">
+                            <div className="flex items-center gap-1.5 px-1">
+                              <span className="text-[9px] sm:text-[10px] font-bold text-slate-400">{msg.username}</span>
+                              <span className="text-[8px] sm:text-[9px] text-slate-600 font-mono">
                                 {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                               </span>
                             </div>
 
                             <div
-                              className={`p-3.5 rounded-2xl text-xs leading-relaxed break-words relative shadow-md ${
+                              className={`p-3 sm:p-3.5 rounded-2xl text-xs leading-relaxed break-words relative shadow-md ${
                                 isMe
                                   ? chatMode === 'vault'
                                     ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 text-white rounded-br-none shadow-purple-900/20'
@@ -1032,11 +1060,13 @@ export function ChatView({ onOpenInvite }) {
                                 </div>
                               )}
 
-                              {msg.text && <p className="whitespace-pre-wrap font-medium mb-2">{msg.text}</p>}
+                              {msg.text && <p className="whitespace-pre-wrap font-medium">{msg.text}</p>}
 
                               {/* Media Renderers */}
                               {(meta.fileUrl && (meta.mimeType?.startsWith('audio/') || msg.type === 'audio' || meta.fileName?.includes('voice-note'))) && (
-                                <AudioMemoPlayer fileUrl={meta.fileUrl} duration={meta.duration} />
+                                <div className="mt-1">
+                                  <AudioMemoPlayer fileUrl={meta.fileUrl} duration={meta.duration} />
+                                </div>
                               )}
 
                               {meta.fileUrl && (meta.mimeType?.startsWith('image/') || msg.type === 'image') && (
@@ -1045,14 +1075,14 @@ export function ChatView({ onOpenInvite }) {
                                     src={meta.fileUrl}
                                     alt={meta.fileName || 'Shared Photo'}
                                     onClick={() => setLightboxImage(meta.fileUrl)}
-                                    className="max-h-72 w-auto object-cover rounded-xl hover:opacity-90 transition-opacity"
+                                    className="max-h-60 sm:max-h-72 w-auto object-cover rounded-xl hover:opacity-90 transition-opacity"
                                   />
                                   <a
                                     href={meta.fileUrl}
                                     download={meta.fileName || 'photo'}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-[10px] flex items-center gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity"
+                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-[10px] flex items-center gap-1"
                                   >
                                     <Download className="w-3 h-3" />
                                     <span>Download</span>
@@ -1062,20 +1092,20 @@ export function ChatView({ onOpenInvite }) {
 
                               {meta.fileUrl && (meta.mimeType?.startsWith('video/') || msg.type === 'video') && (
                                 <div className="mt-1 rounded-xl overflow-hidden border border-white/20 bg-black/40 p-1">
-                                  <video src={meta.fileUrl} controls className="max-h-64 w-full rounded-lg" />
+                                  <video src={meta.fileUrl} controls className="max-h-52 sm:max-h-64 w-full rounded-lg" />
                                 </div>
                               )}
 
                               {meta.fileUrl && (meta.mimeType === 'application/pdf' || msg.type === 'file' || meta.fileName?.endsWith('.pdf')) && (
-                                <div className="mt-1 p-3 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between gap-3">
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    <div className="w-9 h-9 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 font-bold text-sm shrink-0">
+                                <div className="mt-1 p-2.5 sm:p-3 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 font-bold text-xs shrink-0">
                                       📄
                                     </div>
                                     <div className="min-w-0">
-                                      <h5 className="font-bold text-xs text-white truncate">{meta.fileName || 'Document.pdf'}</h5>
-                                      <span className="text-[10px] text-slate-400 block">
-                                        {meta.fileSize ? `${Math.round(meta.fileSize / 1024)} KB` : 'PDF Document'}
+                                      <h5 className="font-bold text-[11px] text-white truncate">{meta.fileName || 'Document.pdf'}</h5>
+                                      <span className="text-[9px] text-slate-400 block">
+                                        {meta.fileSize ? `${Math.round(meta.fileSize / 1024)} KB` : 'PDF'}
                                       </span>
                                     </div>
                                   </div>
@@ -1084,30 +1114,30 @@ export function ChatView({ onOpenInvite }) {
                                     target="_blank"
                                     rel="noreferrer"
                                     download={meta.fileName || 'document.pdf'}
-                                    className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[11px] flex items-center gap-1 shrink-0"
+                                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] flex items-center gap-1 shrink-0"
                                   >
-                                    <Download className="w-3.5 h-3.5" />
+                                    <Download className="w-3 h-3" />
                                     <span>Open</span>
                                   </a>
                                 </div>
                               )}
 
                               {meta.latitude && meta.longitude && (
-                                <div className="mt-1 p-3 rounded-xl bg-slate-950/80 border border-cyan-500/30 space-y-2">
+                                <div className="mt-1 p-2.5 rounded-xl bg-slate-950/80 border border-cyan-500/30 space-y-2">
                                   <div className="flex items-center justify-between">
-                                    <span className="flex items-center gap-1.5 text-xs font-bold text-cyan-300">
-                                      <MapPin className="w-4 h-4 text-pink-400 animate-bounce" />
-                                      <span>{meta.address || 'Shared Location'}</span>
+                                    <span className="flex items-center gap-1 text-[11px] font-bold text-cyan-300">
+                                      <MapPin className="w-3.5 h-3.5 text-pink-400 animate-bounce" />
+                                      <span className="truncate">{meta.address || 'Shared Location'}</span>
                                     </span>
                                   </div>
                                   <a
                                     href={`https://www.google.com/maps?q=${meta.latitude},${meta.longitude}`}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="w-full py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                                    className="w-full py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[10px] flex items-center justify-center gap-1 transition-all shadow-sm"
                                   >
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                    <span>Open in Google Maps</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Open Google Maps</span>
                                   </a>
                                 </div>
                               )}
@@ -1144,94 +1174,94 @@ export function ChatView({ onOpenInvite }) {
 
                 {/* Upload Progress */}
                 {uploading && (
-                  <div className="px-4 py-2 bg-indigo-950/80 border-t border-indigo-500/40 text-xs text-cyan-300 flex items-center gap-2 animate-pulse">
-                    <div className="w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                    <span>{uploadProgress || 'Processing media attachment...'}</span>
+                  <div className="px-3 py-1.5 bg-indigo-950/80 border-t border-indigo-500/40 text-[11px] text-cyan-300 flex items-center gap-2 animate-pulse">
+                    <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                    <span>{uploadProgress || 'Processing media...'}</span>
                   </div>
                 )}
 
                 {/* Attachment Menu Popup (With Vault placed last next to location) */}
                 {attachmentMenuOpen && (
-                  <div className="p-3 mx-4 mb-2 rounded-2xl bg-slate-900/95 border border-pink-500/40 shadow-2xl grid grid-cols-5 gap-2 animate-in slide-in-from-bottom-2 duration-150">
+                  <div className="p-2.5 mx-2 sm:mx-4 mb-2 rounded-2xl bg-slate-900/95 border border-pink-500/40 shadow-2xl grid grid-cols-5 gap-1.5 sm:gap-2 animate-in slide-in-from-bottom-2 duration-150">
                     <button
                       type="button"
                       onClick={() => triggerFileUpload('image/*', 'image')}
-                      className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-pink-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-pink-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
                     >
-                      <div className="w-7 h-7 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center">
                         <ImageIcon className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-[10px] font-bold">Photo</span>
+                      <span className="text-[9px] sm:text-[10px] font-bold">Photo</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => triggerFileUpload('application/pdf,.doc,.docx,.txt', 'file')}
-                      className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-red-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-red-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
                     >
-                      <div className="w-7 h-7 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center">
                         <FileText className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-[10px] font-bold">PDF</span>
+                      <span className="text-[9px] sm:text-[10px] font-bold">PDF</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => triggerFileUpload('video/*', 'video')}
-                      className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
                     >
-                      <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
                         <VideoIcon className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-[10px] font-bold">Video</span>
+                      <span className="text-[9px] sm:text-[10px] font-bold">Video</span>
                     </button>
 
                     {/* Location */}
                     <button
                       type="button"
                       onClick={handleShareLiveLocation}
-                      className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
                     >
-                      <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
                         <MapPin className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-[10px] font-bold">Location</span>
+                      <span className="text-[9px] sm:text-[10px] font-bold">Location</span>
                     </button>
 
                     {/* Private Vault (Placed next to location as requested) */}
                     <button
                       type="button"
                       onClick={handleOpenVaultFromMenu}
-                      className="p-2 rounded-xl bg-purple-950/60 border border-purple-800/60 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-purple-300 transition-all hover:scale-105"
+                      className="p-1.5 sm:p-2 rounded-xl bg-purple-950/60 border border-purple-800/60 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-purple-300 transition-all hover:scale-105"
                       title="Open Private Vault"
                     >
-                      <div className="w-7 h-7 rounded-lg bg-purple-500/30 text-pink-300 flex items-center justify-center shadow-sm">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-purple-500/30 text-pink-300 flex items-center justify-center shadow-sm">
                         <Lock className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-[10px] font-bold">Vault</span>
+                      <span className="text-[9px] sm:text-[10px] font-bold">Vault</span>
                     </button>
                   </div>
                 )}
 
                 {/* Voice Recording Active Bar */}
                 {isRecordingVoice ? (
-                  <div className="p-3 sm:p-4 border-t border-red-500/40 bg-slate-950 flex items-center justify-between gap-3 animate-pulse">
+                  <div className="p-2.5 sm:p-4 border-t border-red-500/40 bg-slate-950 flex items-center justify-between gap-2 animate-pulse">
                     <div className="flex items-center gap-2 text-red-400 text-xs font-bold font-mono">
-                      <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
-                      <span>Recording: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                      <span>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={cancelVoiceRecording}
-                        className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold"
+                        className="px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold"
                       >
                         Cancel
                       </button>
                       <button
                         type="button"
                         onClick={stopAndSendVoiceRecording}
-                        className="px-4 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-md shadow-pink-600/30"
+                        className="px-3 py-1 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-md shadow-pink-600/30"
                       >
                         Send Memo 🚀
                       </button>
@@ -1239,12 +1269,12 @@ export function ChatView({ onOpenInvite }) {
                   </div>
                 ) : (
                   /* Input Bar */
-                  <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950">
-                    <div className="flex items-center gap-2">
+                  <form onSubmit={handleSend} className="p-2 sm:p-3.5 border-t border-slate-800 bg-slate-950">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
                       <button
                         type="button"
                         onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)}
-                        className={`p-3 rounded-2xl border transition-all ${
+                        className={`p-2.5 sm:p-3 rounded-2xl border transition-all ${
                           attachmentMenuOpen
                             ? 'bg-pink-600 text-white border-pink-500'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-pink-500/40'
@@ -1259,13 +1289,13 @@ export function ChatView({ onOpenInvite }) {
                         placeholder={`Message ${selectedFriend.username}...`}
                         value={input}
                         onChange={handleInputChange}
-                        className="flex-1 glass-input rounded-2xl px-4 py-3 text-xs text-white placeholder:text-slate-500"
+                        className="flex-1 glass-input rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 text-xs text-white placeholder:text-slate-500"
                       />
 
                       <button
                         type="button"
                         onClick={startVoiceRecording}
-                        className="p-3 rounded-2xl bg-slate-900 border border-slate-800 text-pink-400 hover:bg-pink-950/40 hover:border-pink-500/40 transition-all shadow-md"
+                        className="p-2.5 sm:p-3 rounded-2xl bg-slate-900 border border-slate-800 text-pink-400 hover:bg-pink-950/40 hover:border-pink-500/40 transition-all shadow-md"
                         title="Record Voice Note"
                       >
                         <Mic className="w-4 h-4" />
@@ -1274,7 +1304,7 @@ export function ChatView({ onOpenInvite }) {
                       <button
                         type="submit"
                         disabled={!input.trim()}
-                        className="p-3 rounded-2xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold transition-all shadow-lg disabled:opacity-40"
+                        className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold transition-all shadow-lg disabled:opacity-40"
                       >
                         <Send className="w-4 h-4" />
                       </button>
@@ -1286,15 +1316,21 @@ export function ChatView({ onOpenInvite }) {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-500 space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-2xl">
+            <div className="w-14 h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-2xl">
               💬
             </div>
             <div>
               <h4 className="text-sm font-bold text-slate-300">Select a friend to start chatting</h4>
               <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Pick any friend from your chat list on the left to send messages, voice notes, and media.
+                Pick any friend from your chat list to send messages, voice notes, and media.
               </p>
             </div>
+            <button
+              onClick={handleBackToContacts}
+              className="md:hidden px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold"
+            >
+              View Contacts List
+            </button>
           </div>
         )}
       </div>

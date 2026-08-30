@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: duocore-backend
+    env: node
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        value: "*"
+      - key: PORT
+        value: 5000

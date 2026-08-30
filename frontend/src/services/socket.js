@@ -1,15 +1,23 @@
 import { io } from 'socket.io-client';
 
 let socket = null;
+let currentToken = null;
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || '/';
 
 export function getSocket() {
-  if (!socket) {
-    const token = localStorage.getItem('duocore_token');
-    socket = io('/', {
+  const token = localStorage.getItem('duocore_token');
+
+  // If token changed or socket is null, recreate socket
+  if (!socket || (token && token !== currentToken)) {
+    if (socket) {
+      socket.disconnect();
+    }
+    currentToken = token;
+    socket = io(SOCKET_URL, {
       auth: { token },
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15,
       reconnectionDelay: 1000
     });
   }
@@ -17,19 +25,37 @@ export function getSocket() {
 }
 
 export function connectSocket(token) {
-  const s = getSocket();
-  if (token) {
-    s.auth = { token };
+  const activeToken = token || localStorage.getItem('duocore_token');
+
+  if (socket && currentToken !== activeToken) {
+    socket.disconnect();
+    socket = null;
   }
-  if (!s.connected) {
-    s.connect();
+
+  currentToken = activeToken;
+
+  if (!socket) {
+    socket = io(SOCKET_URL, {
+      auth: { token: activeToken },
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 15,
+      reconnectionDelay: 1000
+    });
+  } else {
+    socket.auth = { token: activeToken };
+    if (!socket.connected) {
+      socket.connect();
+    }
   }
-  return s;
+
+  return socket;
 }
 
 export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
+    currentToken = null;
   }
 }

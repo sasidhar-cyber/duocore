@@ -22,6 +22,7 @@ const cyberRoutes = require('./routes/cyber');
 const linuxRoutes = require('./routes/linux');
 const quizzesRoutes = require('./routes/quizzes');
 const revisionRoutes = require('./routes/revision');
+const communityRoutes = require('./routes/community');
 
 // Initialize database schema and seeds
 initDb();
@@ -93,6 +94,7 @@ app.use('/api/cyber', cyberRoutes);
 app.use('/api/linux', linuxRoutes);
 app.use('/api/quizzes', quizzesRoutes);
 app.use('/api/revision', revisionRoutes);
+app.use('/api/community', communityRoutes);
 
 // Socket.IO Handlers
 initSockets(io);
@@ -100,10 +102,13 @@ initSockets(io);
 // Centralized error handler
 app.use(errorHandler);
 
-// Start Server if invoked directly
-if (require.main === module) {
-  server.listen(PORT, () => {
-    console.log(`
+// Catch unhandled 404s
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`
   ╔════════════════════════════════════════════════════════════════════╗
   ║                      DUOCORE BACKEND SERVER                        ║
   ║         "Learn. Practice. Challenge. Together."                    ║
@@ -112,8 +117,7 @@ if (require.main === module) {
   ║  ⚡ Socket.IO listening on: ws://localhost:${PORT}                   ║
   ║  🛡️ Health Check:          http://localhost:${PORT}/api/health        ║
   ╚════════════════════════════════════════════════════════════════════╝
-    `);
-  });
-}
+  `);
+});
 
-module.exports = { app, server, io };
+module.exports = { app, server };

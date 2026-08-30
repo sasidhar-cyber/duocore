@@ -111,7 +111,7 @@ function initDb() {
     console.error('[DB] Migration check failed:', err);
   }
 
-  // 3. Create remaining tables and indexes
+  // 3. Create remaining core tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS message_reactions (
       id TEXT PRIMARY KEY,
@@ -192,6 +192,7 @@ function initDb() {
       completed INTEGER DEFAULT 1,
       started_at TEXT NOT NULL,
       ended_at TEXT NOT NULL,
+      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -284,21 +285,79 @@ function initDb() {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    /* ========================================================================= */
+    /* 4. PUBLIC COMMUNITY & SHOWCASE PLATFORM TABLES                            */
+    /* ========================================================================= */
+
+    CREATE TABLE IF NOT EXISTS community_posts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT DEFAULT 'writeup',
+      tags TEXT DEFAULT '[]',
+      content TEXT NOT NULL,
+      code_snippet TEXT DEFAULT '',
+      likes_count INTEGER DEFAULT 0,
+      comments_count INTEGER DEFAULT 0,
+      views_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS post_comments (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(post_id) REFERENCES community_posts(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS post_likes (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(post_id, user_id),
+      FOREIGN KEY(post_id) REFERENCES community_posts(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS community_challenges (
+      id TEXT PRIMARY KEY,
+      created_by TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      difficulty TEXT DEFAULT 'medium',
+      points INTEGER DEFAULT 100,
+      description TEXT NOT NULL,
+      hint TEXT DEFAULT '',
+      flag TEXT NOT NULL,
+      solved_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS challenge_solves (
+      id TEXT PRIMARY KEY,
+      challenge_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      solved_at TEXT NOT NULL,
+      UNIQUE(challenge_id, user_id),
+      FOREIGN KEY(challenge_id) REFERENCES community_challenges(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
     CREATE INDEX IF NOT EXISTS idx_room_members_room ON room_members(room_id);
-    CREATE INDEX IF NOT EXISTS idx_partnerships_a ON duo_partnerships(user_a_id, status);
-    CREATE INDEX IF NOT EXISTS idx_partnerships_b ON duo_partnerships(user_b_id, status);
-    CREATE INDEX IF NOT EXISTS idx_invites_code ON duo_invites(code);
-    CREATE INDEX IF NOT EXISTS idx_invites_sender ON duo_invites(sender_id, status);
     CREATE INDEX IF NOT EXISTS idx_messages_room_channel ON messages(room_id, channel_type, created_at);
-    CREATE INDEX IF NOT EXISTS idx_level_progress_user ON level_progress(user_id);
-    CREATE INDEX IF NOT EXISTS idx_revision_items_user ON revision_items(user_id);
-    CREATE INDEX IF NOT EXISTS idx_topic_mastery_user ON topic_mastery(user_id);
-    CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id);
-    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_community_challenges_cat ON community_challenges(category);
   `);
 
-  // 4. Seed Questions
+  // 5. Seed Questions
   const countQ = db.prepare('SELECT COUNT(*) as count FROM questions').get().count;
   if (countQ === 0) {
     console.log('[DB] Seeding questions...');
@@ -324,7 +383,7 @@ function initDb() {
     insertMany(QUESTIONS);
   }
 
-  // 5. Seed Achievements
+  // 6. Seed Achievements
   const countAch = db.prepare('SELECT COUNT(*) as count FROM achievements').get().count;
   if (countAch === 0) {
     console.log('[DB] Seeding achievements...');
@@ -338,6 +397,115 @@ function initDb() {
       }
     });
     insertManyAch(ACHIEVEMENTS);
+  }
+
+  // 7. Seed Initial Community Posts & CTF Challenges
+  const countPosts = db.prepare('SELECT COUNT(*) as count FROM community_posts').get().count;
+  if (countPosts === 0) {
+    console.log('[DB] Seeding public community writeups & challenges...');
+    
+    // Create system community author if not present
+    const sysUser = db.prepare("SELECT id FROM users WHERE username = 'CyberSentinel'").get();
+    let authorId = sysUser?.id;
+    if (!authorId) {
+      authorId = 'user-sentinel-01';
+      const hash = bcrypt.hashSync('cyberpassword123', 10);
+      db.prepare(`
+        INSERT INTO users (id, username, email, password_hash, avatar_url, bio, xp, level, streak, created_at)
+        VALUES (?, 'CyberSentinel', 'sentinel@duocore.app', ?, 'https://api.dicebear.com/7.x/bottts/svg?seed=CyberSentinel', 'Security Researcher & Linux Kernel Explorer', 2450, 25, 14, ?)
+      `).run(authorId, hash, new Date().toISOString());
+    }
+
+    const insertPost = db.prepare(`
+      INSERT INTO community_posts (id, user_id, title, category, tags, content, code_snippet, likes_count, comments_count, views_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const posts = [
+      {
+        id: 'post-1',
+        title: 'Mastering Linux SUID Privilege Escalation (From Discovery to Root)',
+        category: 'writeup',
+        tags: JSON.stringify(['#Linux', '#PrivEsc', '#SUID', '#Hardening']),
+        content: 'When auditing Linux systems for privilege escalation vectors, SUID (Set Owner User ID up on execution) binaries should be your very first check. Binaries with the SUID bit execute with root privileges regardless of who runs them.\n\n### Step 1: Discover SUID Binaries\nRun `find / -perm -4000 2>/dev/null`.\n\n### Step 2: Exploit Misconfigurations\nIf custom binaries or interpreters like Python or Vim have SUID enabled, you can spawn an interactive root shell instantly.',
+        code_snippet: 'find / -perm -u=s -type f 2>/dev/null\n# Example GTFOBins Vim SUID exploit:\nvim -c \':py3 import os; os.execl("/bin/sh", "sh", "-pc", "reset; exec sh -p")\'',
+        likes: 24,
+        comments: 5,
+        views: 310
+      },
+      {
+        id: 'post-2',
+        title: 'Understanding SQL Injection: In-Band, Blind & Time-Based Techniques',
+        category: 'tutorial',
+        tags: JSON.stringify(['#WebSecurity', '#SQLi', '#OWASP', '#Defense']),
+        content: 'SQL Injection remains one of the most critical vulnerabilities in the OWASP Top 10. In this writeup, we analyze vulnerable parameterized query failures and demonstrate defensive techniques using Prepared Statements.\n\nAlways enforce strict parameterized queries with placeholders instead of string concatenation!',
+        code_snippet: '// Vulnerable:\nconst query = `SELECT * FROM users WHERE user = \'${userInput}\'`;\n\n// Secure (Parameterized):\nconst query = "SELECT * FROM users WHERE user = $1";',
+        likes: 19,
+        comments: 3,
+        views: 185
+      },
+      {
+        id: 'post-3',
+        title: 'Network Port Hardening: Replacing Legacy Services with TLS 1.3 & SSH Keys',
+        category: 'writeup',
+        tags: JSON.stringify(['#Networking', '#SSH', '#TLS', '#Firewall']),
+        content: 'Leaving ports 21 (FTP), 23 (Telnet), or 80 (HTTP) open in production exposes plaintext credentials over the wire. Audit your open listening sockets using `ss -tulpn` and disable root password SSH logins in `/etc/ssh/sshd_config`.',
+        code_snippet: '# Check open listening sockets:\nss -tulpn | grep LISTEN\n\n# Harden SSH config:\nPermitRootLogin no\nPasswordAuthentication no',
+        likes: 31,
+        comments: 8,
+        views: 420
+      }
+    ];
+
+    for (const p of posts) {
+      insertPost.run(p.id, authorId, p.title, p.category, p.tags, p.content, p.code_snippet, p.likes, p.comments, p.views, new Date().toISOString(), new Date().toISOString());
+    }
+
+    // Seed CTF Challenges
+    const insertChall = db.prepare(`
+      INSERT INTO community_challenges (id, created_by, title, category, difficulty, points, description, hint, flag, solved_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const challenges = [
+      {
+        id: 'chall-1',
+        title: 'Secret Cipher Decryption (ROT13 + Base64)',
+        category: 'Cryptography',
+        difficulty: 'easy',
+        points: 50,
+        description: 'An intercepted network packet contained an encrypted authorization token: `RFVPe2NyeXB0b19iYXNlNjRfcm90MTNfbWFzdGVyfQ==`. Decode the secret token to retrieve the flag.',
+        hint: 'First decode Base64, then inspect the characters.',
+        flag: 'DUO{crypto_base64_rot13_master}',
+        solved_count: 14
+      },
+      {
+        id: 'chall-2',
+        title: 'Linux Hidden Permissions SUID Audit',
+        category: 'Linux Privilege Escalation',
+        difficulty: 'medium',
+        points: 100,
+        description: 'You gained low-privilege access to a Linux host. Find the hidden SUID binary in `/var/backups/.secret_agent` and execute it with the correct auth key to extract the flag.',
+        hint: 'Use chmod permissions check and run strings or inspect binary parameters.',
+        flag: 'DUO{suid_privesc_kernel_zero_day}',
+        solved_count: 9
+      },
+      {
+        id: 'chall-3',
+        title: 'OWASP SQLi Auth Bypass',
+        category: 'Web Security',
+        difficulty: 'medium',
+        points: 100,
+        description: 'A legacy login form fails to sanitize the username input parameter: `username: admin\' OR 1=1--`. Bypass the authentication logic to claim the flag.',
+        hint: 'Classic SQL tautology bypass.',
+        flag: 'DUO{sqli_bypass_admin_auth_pwned}',
+        solved_count: 11
+      }
+    ];
+
+    for (const c of challenges) {
+      insertChall.run(c.id, authorId, c.title, c.category, c.difficulty, c.points, c.description, c.hint, c.flag, c.solved_count, new Date().toISOString());
+    }
   }
 
   console.log('[DB] DUOCORE database ready.');

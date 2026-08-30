@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import api from '../services/api';
 import { getSocket } from '../services/socket';
 import { useAuth } from './AuthContext';
-import api from '../services/api';
 import { playSound } from '../utils/soundEffects';
 
 const RoomContext = createContext(null);
@@ -9,7 +9,6 @@ const RoomContext = createContext(null);
 export function RoomProvider({ children }) {
   const { user } = useAuth();
 
-  // Squad / Room State
   const [hasPartner, setHasPartner] = useState(false);
   const [hasRoom, setHasRoom] = useState(false);
   const [partnership, setPartnership] = useState(null);
@@ -17,16 +16,19 @@ export function RoomProvider({ children }) {
   const [members, setMembers] = useState([]);
   const [roomData, setRoomData] = useState(null);
   const [pendingInvite, setPendingInvite] = useState(null);
-  const [goals, setGoals] = useState([]);
 
-  // Chat Channels State: Normal & Private
-  const [activeChannel, setActiveChannel] = useState('normal'); // 'normal' or 'private'
+  // Realtime Chat & Vault Messages
   const [normalMessages, setNormalMessages] = useState([]);
   const [privateMessages, setPrivateMessages] = useState([]);
+  const [activeChannel, setActiveChannel] = useState('normal'); // 'normal' | 'private'
   const [partnerTyping, setPartnerTyping] = useState({ normal: false, private: false });
 
-  // Focus Timer State
+  // Goals
+  const [goals, setGoals] = useState([]);
+
+  // Active Timer Sync
   const [timerState, setTimerState] = useState(null);
+
   const currentRoomIdRef = useRef(null);
 
   // Load active squad / room state from backend
@@ -59,16 +61,6 @@ export function RoomProvider({ children }) {
         setPendingInvite(null);
         currentRoomIdRef.current = res.room.id;
 
-        // Fetch existing messages for both channels
-        try {
-          const [normRes, privRes] = await Promise.all([
-            api.getRoomMessages(res.room.id, 'normal'),
-            api.getRoomMessages(res.room.id, 'private')
-          ]);
-          setNormalMessages(normRes.messages || []);
-          setPrivateMessages(privRes.messages || []);
-        } catch (e) {}
-
         // Join socket room
         const s = getSocket();
         if (s) {
@@ -89,7 +81,7 @@ export function RoomProvider({ children }) {
     } catch (err) {
       console.error('[RoomContext] Failed to load room state:', err);
     }
-  }, [user]);
+  }, [user?.id]);
 
   // Initial load on user login/auth change
   useEffect(() => {
@@ -148,6 +140,7 @@ export function RoomProvider({ children }) {
     const handlePartnerLeft = (data) => {
       if (data.userId !== user?.id) {
         setPartner((prev) => (prev ? { ...prev, is_online: false } : prev));
+        setMembers((prev) => prev.map(m => m.id === data.userId ? { ...m, is_online: false } : m));
       }
     };
 
@@ -157,36 +150,37 @@ export function RoomProvider({ children }) {
     };
 
     const handleDuoPartnerRemoved = () => {
+      setHasPartner(false);
+      setPartner(null);
+      setPartnership(null);
       playSound('quiz_wrong');
       refreshPartnerState();
     };
 
-    const handleTimerSync = (data) => {
-      setTimerState(data);
+    const handleTimerSync = (state) => {
+      setTimerState(state);
     };
 
-    const handleReaction = ({ messageId, emoji, action }) => {
-      const updater = (prev) =>
-        prev.map((msg) => {
-          if (msg.id !== messageId) return msg;
-          const reactions = { ...(msg.reactions || {}) };
-          if (action === 'removed') {
-            reactions[emoji] = Math.max(0, (reactions[emoji] || 1) - 1);
-            if (!reactions[emoji]) delete reactions[emoji];
-          } else {
+    const handleReaction = ({ messageId, userId, emoji, action }) => {
+      const updateList = (list) =>
+        list.map((m) => {
+          if (m.id !== messageId) return m;
+          const reactions = { ...(m.reactions || {}) };
+          if (action === 'added') {
             reactions[emoji] = (reactions[emoji] || 0) + 1;
+          } else {
+            reactions[emoji] = Math.max(0, (reactions[emoji] || 1) - 1);
+            if (reactions[emoji] === 0) delete reactions[emoji];
           }
-          return { ...msg, reactions };
+          return { ...m, reactions };
         });
 
-      setNormalMessages(updater);
-      setPrivateMessages(updater);
+      setNormalMessages(updateList);
+      setPrivateMessages(updateList);
     };
 
-    const handleChallenge = (payload) => {
-      if (payload.challengerId !== user?.id) {
-        playSound('quiz_correct');
-      }
+    const handleChallenge = (challenge) => {
+      playSound('quiz_correct');
     };
 
     s.on('chat:new_message', handleNewMessage);
@@ -214,7 +208,7 @@ export function RoomProvider({ children }) {
       s.off('chat:reaction_updated', handleReaction);
       s.off('quiz:challenge_received', handleChallenge);
     };
-  }, [user, refreshPartnerState]);
+  }, [user?.id, refreshPartnerState]);
 
   // Actions
   const createInvite = async () => {
@@ -282,77 +276,48 @@ export function RoomProvider({ children }) {
     }
   };
 
-  const updateStudyStatus = (subject, topic, isStudying) => {
+  const updateStudyStatus = async (statusData) => {
     if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('presence:status_update', { roomId: roomData.id, subject, topic, isStudying });
-    }
-    api.updateRoomStatus(roomData.id, { subject, topic, is_studying: isStudying }).catch(() => {});
-  };
-
-  const startTimer = (mode, durationSeconds, subject, topic) => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('timer:start', { roomId: roomData.id, mode, durationSeconds, subject, topic });
+    try {
+      await api.updateRoomStatus(roomData.id, statusData);
+    } catch (err) {
+      console.error('[RoomContext] Failed to update status:', err);
     }
   };
 
-  const pauseTimer = () => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('timer:pause', { roomId: roomData.id });
-    }
+  const value = {
+    hasPartner,
+    hasRoom,
+    partnership,
+    partner,
+    members,
+    roomData,
+    pendingInvite,
+    normalMessages,
+    privateMessages,
+    activeChannel,
+    setActiveChannel,
+    partnerTyping,
+    goals,
+    timerState,
+    refreshPartnerState,
+    createInvite,
+    cancelInvite,
+    acceptInvite,
+    removePartner,
+    sendMessage,
+    sendTyping,
+    reactToMessage,
+    updateStudyStatus
   };
 
-  const resetTimer = (mode, durationSeconds) => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('timer:reset', { roomId: roomData.id, mode, durationSeconds });
-    }
-  };
-
-  return (
-    <RoomContext.Provider
-      value={{
-        hasPartner,
-        hasRoom,
-        partnership,
-        partner,
-        members,
-        roomData,
-        pendingInvite,
-        goals,
-        activeChannel,
-        normalMessages,
-        privateMessages,
-        partnerTyping,
-        timerState,
-        setActiveChannel,
-        createInvite,
-        cancelInvite,
-        acceptInvite,
-        removePartner,
-        refreshPartnerState,
-        sendMessage,
-        sendTyping,
-        reactToMessage,
-        updateStudyStatus,
-        startTimer,
-        pauseTimer,
-        resetTimer
-      }}
-    >
-      {children}
-    </RoomContext.Provider>
-  );
+  return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
 }
 
 export function useRoom() {
   const context = useContext(RoomContext);
-  if (!context) throw new Error('useRoom must be used within a RoomProvider');
+  if (!context) {
+    throw new Error('useRoom must be used within a RoomProvider');
+  }
   return context;
 }
