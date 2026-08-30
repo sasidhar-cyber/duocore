@@ -231,6 +231,19 @@ async function resolveAudioStreamUrl(idOrQuery) {
   throw new Error('Failed to resolve audio stream URL');
 }
 
+function cleanHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/(\[.*?\]|\(.*?\))/g, '')
+    .replace(/(official video|lyrics|audio|video|remix|hd|4k|full song)/gi, '')
+    .trim();
+}
+
 // 1. Advanced Search with Filters & Categories
 router.get('/search', async (req, res) => {
   const query = String(req.query.q || '').trim();
@@ -249,31 +262,62 @@ router.get('/search', async (req, res) => {
     if (category && category !== 'All') searchTerms.push(category);
 
     const fullQuery = searchTerms.filter(Boolean).join(' ');
+    const results = [];
+    const seenIds = new Set();
 
-    // 1. Query JioSaavn Official Catalog First
+    // 1. High Priority: Direct Autocomplete Match (Top exact song match)
     try {
-      const saavnRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(fullQuery)}&_format=json&_marker=0&ctx=web6dot0&n=30&p=1`, {
+      const autoRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(fullQuery)}&ctx=web6dot0&_format=json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 4000
+      });
+      const autoSongs = autoRes.data?.songs?.data || [];
+      for (const s of autoSongs) {
+        if (s.id && !seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          results.push({
+            id: s.id,
+            title: cleanHtml(s.title),
+            fullTitle: cleanHtml(s.title),
+            artist: cleanHtml(s.more_info?.primary_artists || s.description),
+            album: cleanHtml(s.album),
+            thumbnail: s.image ? s.image.replace('50x50', '150x150') : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
+            duration: '3:45',
+            seconds: 225,
+            language: s.more_info?.language || ''
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Deep Catalog Search
+    try {
+      const deepRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(fullQuery)}&_format=json&_marker=0&ctx=web6dot0&n=40&p=1`, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         timeout: 5000
       });
-      const saavnSongs = saavnRes.data?.results || [];
-      if (saavnSongs.length > 0) {
-        const musicTracks = saavnSongs.map((s) => ({
-          id: s.id,
-          title: s.song.replace(/(\[.*?\]|\(.*?\))/g, '').replace(/(official video|lyrics|audio|video|remix|hd|4k|full song)/gi, '').trim(),
-          fullTitle: s.song,
-          artist: s.singers || s.primary_artists || 'Popular Artist',
-          album: s.album,
-          duration: s.duration ? `${Math.floor(s.duration / 60)}:${(s.duration % 60).toString().padStart(2, '0')}` : '3:30',
-          seconds: parseInt(s.duration, 10) || 210,
-          thumbnail: (s.image || '').replace('150x150', '500x500').replace('50x50', '500x500') || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop',
-          year: s.year,
-          language: s.language
-        }));
-        return res.json({ results: musicTracks, albums: CURATED_ALBUMS });
+      const deepSongs = deepRes.data?.results || [];
+      for (const s of deepSongs) {
+        if (s.id && !seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          results.push({
+            id: s.id,
+            title: cleanHtml(s.song),
+            fullTitle: cleanHtml(s.song),
+            artist: cleanHtml(s.singers || s.primary_artists),
+            album: cleanHtml(s.album),
+            thumbnail: s.image || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
+            duration: s.duration ? `${Math.floor(s.duration / 60)}:${(s.duration % 60).toString().padStart(2, '0')}` : '3:30',
+            seconds: parseInt(s.duration, 10) || 210,
+            year: s.year,
+            language: s.language
+          });
+        }
       }
-    } catch (e) {
-      console.warn('[Music Search] JioSaavn search fallback:', e.message);
+    } catch (e) {}
+
+    if (results.length > 0) {
+      return res.json({ results, albums: CURATED_ALBUMS });
     }
 
     // 2. Fallback to YouTube Search

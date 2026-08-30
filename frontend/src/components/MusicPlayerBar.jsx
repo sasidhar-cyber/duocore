@@ -64,8 +64,11 @@ export function MusicPlayerBar() {
         >
           <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-emerald-500/30 group-hover:ring-emerald-400 transition-all">
             <img
-              src={currentTrack.thumbnail}
+              src={currentTrack.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
               alt={currentTrack.title}
+              onError={(e) => {
+                e.target.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop';
+              }}
               className="w-full h-full object-cover"
             />
             {isPlaying && (

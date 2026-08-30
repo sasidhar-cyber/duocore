@@ -269,8 +269,11 @@ export function NowPlayingModal({ isOpen, onClose }) {
       <div className="flex flex-col items-center justify-center max-w-sm sm:max-w-md mx-auto w-full my-auto py-2 space-y-4 sm:space-y-6">
         <div className="relative aspect-square w-48 h-48 sm:w-64 sm:h-64 rounded-3xl overflow-hidden shadow-2xl ring-2 sm:ring-4 ring-emerald-500/20 group">
           <img
-            src={currentTrack.thumbnail}
+            src={currentTrack.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop'}
             alt={currentTrack.title}
+            onError={(e) => {
+              e.target.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop';
+            }}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
           />
         </div>
