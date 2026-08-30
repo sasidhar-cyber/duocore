@@ -1,6 +1,7 @@
 const express = require('express');
 const yts = require('yt-search');
 const axios = require('axios');
+const CryptoJS = require('crypto-js');
 const { exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
@@ -12,6 +13,23 @@ const router = express.Router();
 
 const LOCAL_BIN_DIR = path.join(__dirname, '../../bin');
 const LOCAL_YTDLP = path.join(LOCAL_BIN_DIR, 'yt-dlp');
+
+function decryptSaavnMediaUrl(encryptedUrl) {
+  if (!encryptedUrl) return null;
+  try {
+    const key = CryptoJS.enc.Utf8.parse('38346591');
+    const decrypted = CryptoJS.DES.decrypt(
+      { ciphertext: CryptoJS.enc.Base64.parse(encryptedUrl) },
+      key,
+      { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.Pkcs7 }
+    );
+    const rawUrl = decrypted.toString(CryptoJS.enc.Utf8);
+    if (!rawUrl || !rawUrl.startsWith('http')) return null;
+    return rawUrl.replace(/_96\.(mp4|m4a)/, '_320.mp4').replace(/_160\.(mp4|m4a)/, '_320.mp4');
+  } catch (e) {
+    return null;
+  }
+}
 
 // Ensure standalone yt-dlp binary is available
 function ensureYtDlp() {
@@ -119,7 +137,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
     videoId = videoId.split('youtu.be/')[1].split('?')[0];
   }
 
-  // Strategy 1: JioSaavn Direct High-Speed CDN Stream (Zero Bot Detection, Instant Playback)
+  // Strategy 1: JioSaavn Full 320kbps Unrestricted Audio Stream (Full Track 3-5 minutes)
   try {
     const songMeta = SPOTIFY_JIOSAAVN_TOP_SONGS.find((s) => s.id === videoId);
     const searchQuery = songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery.replace('query:', '');
@@ -128,16 +146,23 @@ async function resolveAudioStreamUrl(idOrQuery) {
       timeout: 4000
     });
     const song = searchRes.data?.songs?.data?.[0];
-    if (song && song.more_info?.vlink) {
-      const streamUrl = song.more_info.vlink;
-      streamUrlCache.set(idOrQuery, {
-        url: streamUrl,
-        expireAt: Date.now() + 6 * 60 * 60 * 1000
+    if (song && song.id) {
+      const detailsRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${song.id}&ctx=web6dot0&_format=json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 4000
       });
-      return streamUrl;
+      const songData = detailsRes.data?.songs?.[0] || detailsRes.data?.[song.id];
+      const fullUrl = decryptSaavnMediaUrl(songData?.more_info?.encrypted_media_url || songData?.encrypted_media_url);
+      if (fullUrl) {
+        streamUrlCache.set(idOrQuery, {
+          url: fullUrl,
+          expireAt: Date.now() + 6 * 60 * 60 * 1000
+        });
+        return fullUrl;
+      }
     }
   } catch (e) {
-    console.warn('[Music Stream] Strategy 1 (JioSaavn) fallback:', e.message);
+    console.warn('[Music Stream] Strategy 1 (JioSaavn Full Track) fallback:', e.message);
   }
 
   // Strategy 2: yt-dlp with tvhtml5 and android_creator clients
