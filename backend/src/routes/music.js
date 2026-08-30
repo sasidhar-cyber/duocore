@@ -137,10 +137,40 @@ async function resolveAudioStreamUrl(idOrQuery) {
     videoId = videoId.split('youtu.be/')[1].split('?')[0];
   }
 
-  // Strategy 1: JioSaavn Full 320kbps Unrestricted Audio Stream (Full Track 3-5 minutes)
+  // Strategy 1: Direct JioSaavn Song ID Details Decryption (Instant 320kbps)
+  try {
+    const detailsRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(videoId)}&ctx=web6dot0&_format=json`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 4000
+    });
+    const songData = detailsRes.data?.songs?.[0] || detailsRes.data?.[videoId];
+    const fullUrl = decryptSaavnMediaUrl(songData?.more_info?.encrypted_media_url || songData?.encrypted_media_url);
+    if (fullUrl) {
+      streamUrlCache.set(idOrQuery, {
+        url: fullUrl,
+        expireAt: Date.now() + 6 * 60 * 60 * 1000
+      });
+      return fullUrl;
+    }
+  } catch (e) {
+    // Not a direct Saavn PID, proceed to search
+  }
+
+  // Strategy 2: JioSaavn Search by Song Name or YouTube Title
   try {
     const songMeta = SPOTIFY_JIOSAAVN_TOP_SONGS.find((s) => s.id === videoId);
-    const searchQuery = songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery.replace('query:', '');
+    let searchQuery = songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery.replace('query:', '');
+
+    // If it looks like a YouTube ID (11 chars), resolve title first
+    if (/^[a-zA-Z0-9_-]{11}$/.test(videoId) && !songMeta) {
+      try {
+        const ytVideo = await yts({ videoId });
+        if (ytVideo?.title) {
+          searchQuery = ytVideo.title.replace(/(\[.*?\]|\(.*?\))/g, '').replace(/(official video|lyrics|audio|video|remix|hd|4k|full song)/gi, '').trim();
+        }
+      } catch {}
+    }
+
     const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(searchQuery)}&ctx=web6dot0&_format=json`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       timeout: 4000
@@ -162,10 +192,10 @@ async function resolveAudioStreamUrl(idOrQuery) {
       }
     }
   } catch (e) {
-    console.warn('[Music Stream] Strategy 1 (JioSaavn Full Track) fallback:', e.message);
+    console.warn('[Music Stream] Strategy 2 (JioSaavn Search) fallback:', e.message);
   }
 
-  // Strategy 2: yt-dlp with tvhtml5 and android_creator clients
+  // Strategy 3: yt-dlp with tvhtml5 and android_creator clients
   try {
     const ytdlpCommand = fs.existsSync('/usr/local/bin/yt-dlp')
       ? '/usr/local/bin/yt-dlp'
@@ -196,32 +226,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
       return streamUrl;
     }
   } catch (err) {
-    console.warn('[Music Stream] Strategy 2 (yt-dlp) failed:', err.message);
-  }
-
-  // Strategy 3: Invidious Instances Audio Stream
-  const invidiousInstances = [
-    'https://invidious.nerdvpn.de',
-    'https://yt.drgnz.club',
-    'https://inv.tux.pizza',
-    'https://invidious.jing.rocks'
-  ];
-
-  for (const instance of invidiousInstances) {
-    try {
-      const res = await axios.get(`${instance}/api/v1/videos/${videoId}`, { timeout: 4000 });
-      const audioFormats = (res.data?.adaptiveFormats || []).filter((f) => f.type && f.type.includes('audio'));
-      if (audioFormats.length > 0 && audioFormats[0].url) {
-        const streamUrl = audioFormats[0].url;
-        streamUrlCache.set(idOrQuery, {
-          url: streamUrl,
-          expireAt: Date.now() + 2 * 60 * 60 * 1000
-        });
-        return streamUrl;
-      }
-    } catch (e) {
-      continue;
-    }
+    console.warn('[Music Stream] Strategy 3 (yt-dlp) failed:', err.message);
   }
 
   throw new Error('Failed to resolve audio stream URL');
@@ -245,6 +250,34 @@ router.get('/search', async (req, res) => {
     if (category && category !== 'All') searchTerms.push(category);
 
     const fullQuery = searchTerms.filter(Boolean).join(' ');
+
+    // 1. Query JioSaavn Official Catalog First
+    try {
+      const saavnRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(fullQuery)}&_format=json&_marker=0&ctx=web6dot0&n=30&p=1`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 5000
+      });
+      const saavnSongs = saavnRes.data?.results || [];
+      if (saavnSongs.length > 0) {
+        const musicTracks = saavnSongs.map((s) => ({
+          id: s.id,
+          title: s.song.replace(/(\[.*?\]|\(.*?\))/g, '').replace(/(official video|lyrics|audio|video|remix|hd|4k|full song)/gi, '').trim(),
+          fullTitle: s.song,
+          artist: s.singers || s.primary_artists || 'Popular Artist',
+          album: s.album,
+          duration: s.duration ? `${Math.floor(s.duration / 60)}:${(s.duration % 60).toString().padStart(2, '0')}` : '3:30',
+          seconds: parseInt(s.duration, 10) || 210,
+          thumbnail: (s.image || '').replace('150x150', '500x500').replace('50x50', '500x500') || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop',
+          year: s.year,
+          language: s.language
+        }));
+        return res.json({ results: musicTracks, albums: CURATED_ALBUMS });
+      }
+    } catch (e) {
+      console.warn('[Music Search] JioSaavn search fallback:', e.message);
+    }
+
+    // 2. Fallback to YouTube Search
     const enhancedQuery = fullQuery.toLowerCase().includes('song') || fullQuery.toLowerCase().includes('audio')
       ? fullQuery
       : `${fullQuery} song`;
