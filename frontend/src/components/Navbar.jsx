@@ -14,8 +14,7 @@ import {
   LogOut,
   User,
   Volume2,
-  VolumeX,
-  MessageSquareLock
+  VolumeX
 } from 'lucide-react';
 
 export function Navbar({ onOpenAuth }) {
@@ -29,11 +28,11 @@ export function Navbar({ onOpenAuth }) {
     <>
       <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl select-none">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Logo */}
+          {/* Stealth Logo Trigger */}
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group"
             onClick={openSecretChat}
-            title={`${appTitle} (Tap to open Duo Chat / Vault)`}
+            title={appTitle}
           >
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 p-[1.5px] shadow-lg shadow-emerald-500/20 shrink-0 group-hover:scale-105 transition-transform">
               <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center text-sm sm:text-lg font-black text-emerald-400">
@@ -55,20 +54,19 @@ export function Navbar({ onOpenAuth }) {
             </div>
           </div>
 
-          {/* Right Action Tools: Equalizer / Chat Trigger, Settings, Profile */}
+          {/* Right Action Tools: Stealth Equalizer, Settings, Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Direct 1-Click Secret Equalizer / Chat Trigger */}
+            {/* Stealth Equalizer Button (Secret Trigger) */}
             <button
               onClick={openSecretChat}
-              className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
-              title="Open Duo Chat & Equalizer (PIN: 1234)"
+              className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-emerald-400 transition-colors"
+              title="Audio Equalizer & Sound Calibration"
             >
-              <div className="flex items-end gap-0.5 h-3.5 w-3 justify-center">
+              <div className="flex items-end gap-0.5 h-3.5 w-3.5 justify-center">
                 <div className="w-0.5 h-full bg-emerald-400 rounded-full animate-pulse" />
                 <div className="w-0.5 h-2/3 bg-emerald-400 rounded-full animate-pulse delay-75" />
                 <div className="w-0.5 h-4/5 bg-emerald-400 rounded-full animate-pulse delay-150" />
               </div>
-              <span className="text-[11px] font-mono tracking-tight hidden xs:inline">Duo Chat</span>
             </button>
 
             {/* Settings Button */}
@@ -104,17 +102,6 @@ export function Navbar({ onOpenAuth }) {
                     </div>
 
                     <div className="p-1.5 space-y-1">
-                      <button
-                        onClick={() => {
-                          setProfileOpen(false);
-                          openSecretChat();
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                      >
-                        <MessageSquareLock className="w-4 h-4" />
-                        <span>Open Duo Chat (1234)</span>
-                      </button>
-
                       <button
                         onClick={() => {
                           setProfileOpen(false);

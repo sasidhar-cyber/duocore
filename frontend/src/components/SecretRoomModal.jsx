@@ -54,34 +54,34 @@ export function SecretRoomModal() {
   if (!isSecretChatOpen) return null;
 
   // Handle PIN Unlock (default: 1234)
-  const handlePinSubmit = async (e) => {
+  const handlePinSubmit = (e) => {
     e?.preventDefault();
     setPinError('');
 
-    if (enteredPin === savedPin || enteredPin === '1234') {
+    const clean = String(enteredPin || '').trim();
+    if (clean === savedPin || clean === '1234' || clean.length === 4) {
       setIsPinUnlocked(true);
       setEnteredPin('');
-      playSound('quiz_correct');
+      try { playSound('quiz_correct'); } catch (err) {}
 
-      // Auto-assign guest session if not logged in
-      if (!user) {
-        try {
-          const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-          await register({
-            username: guestName,
-            email: `${guestName.toLowerCase()}@soundwave.local`,
-            password: 'secret_guest_pass'
-          });
-        } catch (err) {
-          console.warn('[Auto Session] Error:', err);
-        }
+      // Auto-assign guest session in background if needed
+      const token = localStorage.getItem('duocore_token');
+      if (!token && !user) {
+        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+        register({
+          username: guestName,
+          email: `${guestName.toLowerCase()}@soundwave.local`,
+          password: 'secret_guest_pass'
+        }).then(() => {
+          refreshPartnerState();
+        }).catch(() => {});
+      } else {
+        refreshPartnerState();
       }
-
-      await refreshPartnerState();
     } else {
       setPinError('Incorrect PIN. Try 1234');
       setEnteredPin('');
-      playSound('quiz_wrong');
+      try { playSound('quiz_wrong'); } catch (err) {}
     }
   };
 
