@@ -122,7 +122,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     refreshPartnerState
   } = useRoom();
 
-  const { playTrack, openNowPlaying } = useMusic();
+  const { playTrack, openNowPlaying, currentTrack, isPlaying, togglePlay } = useMusic();
 
   const otherPartner = partner || (members && members.find((m) => m && m.id !== user?.id)) || {
     id: 'partner-default',
@@ -486,6 +486,21 @@ export function ChatView({ onOpenInvite, onBack }) {
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* Mini Music Controller Chip in Chat Header */}
+          {currentTrack && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-emerald-500/30 text-emerald-400 max-w-[130px] sm:max-w-[190px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <span className="text-[10px] sm:text-[11px] font-bold truncate text-slate-200">{currentTrack.title}</span>
+              <button
+                onClick={togglePlay}
+                className="p-0.5 rounded-lg text-emerald-300 hover:text-emerald-200 shrink-0 text-xs"
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? '⏸' : '▶'}
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => setSearchOpen(!searchOpen)}
             className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-transform active:scale-95"
@@ -898,7 +913,7 @@ export function ChatView({ onOpenInvite, onBack }) {
       {/* ========================================================================= */}
       {/* 3. WHATSAPP BOTTOM COMPOSER                                               */}
       {/* ========================================================================= */}
-      <div className="p-2 sm:p-3 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2 shrink-0">
+      <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <input
           type="file"
           ref={fileInputRef}

@@ -121,9 +121,6 @@ function AppContent() {
           isOpen={inviteModalOpen}
           onClose={() => setInviteModalOpen(false)}
         />
-
-        {/* Global sticky player if audio is active */}
-        {currentTrack && <MusicPlayerBar />}
       </div>
     );
   }
