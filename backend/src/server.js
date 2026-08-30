@@ -51,7 +51,10 @@ app.set('io', io);
 
 // Middleware
 app.use(helmet({
-  crossOriginResourcePolicy: false
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false
 }));
 app.use(cors({
   origin: CLIENT_ORIGIN,
