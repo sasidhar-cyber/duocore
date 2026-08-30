@@ -104,8 +104,13 @@ router.get('/code/:code', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Invite code is required.' });
   }
 
-  const cleanCode = code.trim().toUpperCase();
-  const invite = db.prepare(`
+  let cleanCode = code.trim().toUpperCase();
+  if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
+    cleanCode = `DUO-${cleanCode}`;
+  }
+
+  // 1. Check in duo_invites
+  let invite = db.prepare(`
     SELECT di.*, u.username as sender_username, u.avatar_url as sender_avatar, u.level as sender_level
     FROM duo_invites di
     JOIN users u ON di.sender_id = u.id
@@ -114,13 +119,30 @@ router.get('/code/:code', requireAuth, (req, res) => {
     LIMIT 1
   `).get(cleanCode);
 
+  // 2. Fallback check in rooms table directly
   if (!invite) {
-    return res.status(404).json({ error: 'Invalid invite code. Please check with your friend.' });
+    const room = db.prepare(`
+      SELECT r.id, r.code, r.name, r.created_by as sender_id, u.username as sender_username, u.avatar_url as sender_avatar
+      FROM rooms r
+      JOIN users u ON r.created_by = u.id
+      WHERE (r.code = ? OR r.code = ?) AND r.is_active = 1
+      LIMIT 1
+    `).get(cleanCode, cleanCode.replace('DUO-', ''));
+
+    if (room) {
+      invite = {
+        id: 'room-' + room.id,
+        code: room.code,
+        sender_id: room.sender_id,
+        sender_username: room.sender_username,
+        sender_avatar: room.sender_avatar,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      };
+    }
   }
 
-  const now = new Date().toISOString();
-  if (invite.expires_at < now) {
-    return res.status(400).json({ error: 'This invite code has expired. Ask your friend to create a fresh invite.' });
+  if (!invite) {
+    return res.status(404).json({ error: 'Invalid invite code. Please check the code with your friend.' });
   }
 
   res.json({
@@ -131,13 +153,13 @@ router.get('/code/:code', requireAuth, (req, res) => {
       senderId: invite.sender_id,
       senderUsername: invite.sender_username,
       senderAvatar: invite.sender_avatar,
-      senderLevel: invite.sender_level,
+      senderLevel: invite.sender_level || 1,
       expiresAt: invite.expires_at
     }
   });
 });
 
-// Accept Invite Code & Join Study Squad
+// Accept Invite Code & Join Duo Squad Room
 router.post('/accept', requireAuth, (req, res) => {
   const { code } = req.body;
   const userId = req.user.id;
@@ -146,56 +168,64 @@ router.post('/accept', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Invite code is required.' });
   }
 
-  const cleanCode = code.trim().toUpperCase();
+  let cleanCode = code.trim().toUpperCase();
+  if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
+    cleanCode = `DUO-${cleanCode}`;
+  }
   const now = new Date().toISOString();
 
-  // Find invite
-  const invite = db.prepare(`
-    SELECT di.*, u.username as sender_username, u.email as sender_email, u.avatar_url as sender_avatar,
-           u.bio as sender_bio, u.xp as sender_xp, u.level as sender_level, u.streak as sender_streak
-    FROM duo_invites di
-    JOIN users u ON di.sender_id = u.id
-    WHERE di.code = ? AND di.expires_at > ?
-    ORDER BY di.created_at DESC
-    LIMIT 1
-  `).get(cleanCode, now);
+  // 1. Look for existing active room with this code
+  let room = db.prepare('SELECT * FROM rooms WHERE (code = ? OR code = ?) AND is_active = 1').get(cleanCode, cleanCode.replace('DUO-', ''));
+  let senderId = null;
+  let senderUsername = 'Partner';
 
-  if (!invite) {
-    return res.status(400).json({ error: 'Invalid or expired invite code. Please verify the code.' });
+  if (!room) {
+    // 2. Look in duo_invites table
+    const invite = db.prepare(`
+      SELECT di.*, u.username as sender_username
+      FROM duo_invites di
+      JOIN users u ON di.sender_id = u.id
+      WHERE di.code = ?
+      ORDER BY di.created_at DESC
+      LIMIT 1
+    `).get(cleanCode);
+
+    if (!invite) {
+      return res.status(400).json({ error: `Invalid code "${cleanCode}". Please verify your friend's 1v1 code.` });
+    }
+    senderId = invite.sender_id;
+    senderUsername = invite.sender_username;
+  } else {
+    senderId = room.created_by;
   }
 
-  // Check if target room already exists for this code
-  let room = db.prepare('SELECT * FROM rooms WHERE code = ? AND is_active = 1').get(cleanCode);
   let roomId;
-
   const tx = db.transaction(() => {
     if (!room) {
-      // Create new Room
       roomId = 'room-duo-' + uuidv4().slice(0, 8);
-      const roomName = `${invite.sender_username}'s Study Squad`;
+      const roomName = `${senderUsername}'s Duo Room`;
 
       db.prepare(`
         INSERT INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
         VALUES (?, ?, ?, '', ?, 1, ?)
-      `).run(roomId, cleanCode, roomName, invite.sender_id, now);
+      `).run(roomId, cleanCode, roomName, senderId, now);
 
-      // Add creator
       db.prepare(`
         INSERT OR IGNORE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
-        VALUES (?, ?, ?, 'creator', ?, ?, 'Cybersecurity', 'Level 1: Cyber World', 0, '')
-      `).run('rm-' + uuidv4().slice(0, 8), roomId, invite.sender_id, now, now);
+        VALUES (?, ?, ?, 'creator', ?, ?, 'General', 'Duo Chat', 0, '')
+      `).run('rm-' + uuidv4().slice(0, 8), roomId, senderId, now, now);
 
       room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId);
     } else {
       roomId = room.id;
     }
 
-    // Add joining user (if not already member)
+    // Add current user to room
     const existingMember = db.prepare('SELECT id FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId);
     if (!existingMember) {
       db.prepare(`
         INSERT INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
-        VALUES (?, ?, ?, 'member', ?, ?, 'Linux', 'Level 1: Terminal Basics', 0, '')
+        VALUES (?, ?, ?, 'member', ?, ?, 'General', 'Duo Chat', 0, '')
       `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
     }
   });
@@ -209,28 +239,25 @@ router.post('/accept', requireAuth, (req, res) => {
     WHERE rm.room_id = ?
   `).all(roomId);
 
-  // Notify everyone in the room via Socket.IO
+  // Notify everyone via socket
   const io = req.app.get('io');
   if (io) {
     io.to(roomId).emit('room:member_joined', {
       roomId,
       user: req.user
     });
-    io.to(`user:${invite.sender_id}`).emit('duo:connected', {
-      room,
-      members
-    });
-    io.to(`user:${userId}`).emit('duo:connected', {
-      room,
-      members
-    });
+    if (senderId) {
+      io.to(`user:${senderId}`).emit('duo:connected', {
+        room,
+        partner: req.user
+      });
+    }
   }
 
   res.json({
-    message: '🎉 Successfully joined the study room!',
+    message: 'Successfully connected to Duo Room!',
     room,
-    members,
-    memberCount: members.length
+    members
   });
 });
 

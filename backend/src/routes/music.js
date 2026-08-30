@@ -121,7 +121,9 @@ async function resolveAudioStreamUrl(idOrQuery) {
 
   // Strategy 1: yt-dlp with android player client extraction & geo-bypass
   try {
-    const ytdlpCommand = fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp';
+    const ytdlpCommand = fs.existsSync('/usr/local/bin/yt-dlp')
+      ? '/usr/local/bin/yt-dlp'
+      : (fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp');
     let target = idOrQuery;
     if (idOrQuery.startsWith('query:')) {
       const q = idOrQuery.replace('query:', '');

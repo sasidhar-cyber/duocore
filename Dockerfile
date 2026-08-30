@@ -13,14 +13,14 @@ RUN apt-get update && apt-get install -y python3 make g++ gcc curl && rm -rf /va
 COPY backend/package*.json ./
 RUN npm install --production
 RUN npm rebuild better-sqlite3
-RUN mkdir -p bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o bin/yt-dlp && chmod +x bin/yt-dlp
 COPY backend/ ./
 
 # Stage 3: Production Runtime
 FROM node:20-bullseye-slim
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y python3 ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y python3 ca-certificates curl ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
 
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 COPY --from=backend-builder /app/backend /app/backend
