@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Auto-create seamless instant user session if none exists
+      // Auto-create unique distinct user session for this device
       try {
         const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
         const res = await api.register({
@@ -69,20 +69,26 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const demoLogin = async (role) => {
-    const res = await api.demoLogin(role);
-    localStorage.setItem('duocore_token', res.token);
-    setToken(res.token);
-    setUser(res.user);
-    connectSocket(res.token);
-    return res;
-  };
-
-  const logout = () => {
+  const logout = async () => {
     localStorage.removeItem('duocore_token');
-    setToken(null);
-    setUser(null);
     disconnectSocket();
+
+    // Immediately generate a fresh distinct user profile for this device
+    try {
+      const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+      const res = await api.register({
+        username: guestName,
+        email: `${guestName.toLowerCase()}@soundwave.local`,
+        password: 'secret_guest_pass'
+      });
+      localStorage.setItem('duocore_token', res.token);
+      setToken(res.token);
+      setUser(res.user);
+      connectSocket(res.token);
+    } catch (e) {
+      setUser(null);
+      setToken(null);
+    }
   };
 
   const toggleSound = () => {
@@ -100,7 +106,6 @@ export function AuthProvider({ children }) {
         soundEnabled,
         login,
         register,
-        demoLogin,
         logout,
         toggleSound
       }}
