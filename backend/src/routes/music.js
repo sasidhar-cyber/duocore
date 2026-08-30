@@ -3,10 +3,31 @@ const yts = require('yt-search');
 const axios = require('axios');
 const { exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+const fs = require('fs');
 const { db } = require('../db');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+const LOCAL_BIN_DIR = path.join(__dirname, '../../bin');
+const LOCAL_YTDLP = path.join(LOCAL_BIN_DIR, 'yt-dlp');
+
+// Ensure standalone yt-dlp binary is available
+function ensureYtDlp() {
+  if (!fs.existsSync(LOCAL_YTDLP)) {
+    try {
+      if (!fs.existsSync(LOCAL_BIN_DIR)) fs.mkdirSync(LOCAL_BIN_DIR, { recursive: true });
+      console.log('[Music Engine] Downloading standalone yt-dlp binary for cloud environment...');
+      exec(`curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${LOCAL_YTDLP}" && chmod +x "${LOCAL_YTDLP}"`, (err) => {
+        if (!err) console.log('[Music Engine] yt-dlp binary ready.');
+      });
+    } catch (e) {
+      console.warn('[Music Engine] Auto-download yt-dlp failed:', e);
+    }
+  }
+}
+ensureYtDlp();
 
 // In-memory cache for extracted audio stream URLs (videoId -> { url, expireAt })
 const streamUrlCache = new Map();
@@ -100,7 +121,9 @@ function resolveAudioStreamUrl(idOrQuery) {
       target = `https://www.youtube.com/watch?v=${idOrQuery}`;
     }
 
-    exec(`python3 -m yt_dlp --js-runtimes node -g -f "ba/b" "${target}"`, { timeout: 18000 }, (err, stdout, stderr) => {
+    const ytdlpCommand = fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp';
+
+    exec(`${ytdlpCommand} -g -f "ba/b" "${target}"`, { timeout: 18000 }, (err, stdout, stderr) => {
       if (err) {
         console.error('[Music Stream] yt-dlp resolution error:', err.message);
         if (!idOrQuery.startsWith('query:')) {
@@ -178,25 +201,31 @@ router.get('/search', async (req, res) => {
 // 2. Search Suggestions (Auto-complete)
 router.get('/suggestions', async (req, res) => {
   const query = String(req.query.q || '').trim();
-  if (!query || query.length < 2) {
-    return res.json({ suggestions: ['Pushpa 2', 'Devara', 'Guntur Kaaram', 'Arijit Singh', 'Sid Sriram', 'Anirudh', 'Taylor Swift', 'The Weeknd'] });
+  if (!query) {
+    return res.json({ suggestions: [] });
   }
 
   try {
-    const searchRes = await yts(query);
-    const top = (searchRes.videos || [])
-      .slice(0, 6)
-      .map(v => v.title.replace(/(\[.*?\]|\(.*?\))/g, '').trim())
-      .filter(Boolean);
-    res.json({ suggestions: Array.from(new Set(top)) });
+    const resGoogle = await axios.get(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query + ' song')}`, {
+      timeout: 3000
+    });
+    const suggestions = (resGoogle.data?.[1] || [])
+      .map((s) => s.replace(/(lyrics|video|full song|audio|hd)/gi, '').trim())
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 8);
+
+    res.json({ suggestions });
   } catch {
     res.json({ suggestions: [] });
   }
 });
 
-// 3. Get Trending Songs & Curated Albums
+// 3. Trending Music
 router.get('/trending', (req, res) => {
-  res.json({ trending: SPOTIFY_JIOSAAVN_TOP_SONGS, albums: CURATED_ALBUMS });
+  res.json({
+    trending: SPOTIFY_JIOSAAVN_TOP_SONGS,
+    albums: CURATED_ALBUMS
+  });
 });
 
 // 4. Audio Streaming Proxy with HTTP Range Support
@@ -351,7 +380,7 @@ router.post('/favorites', requireAuth, (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, userId, trackId, title, artist || '', thumbnail || '', duration || '', album || '', now);
 
-    res.json({ success: true, message: 'Added to favorites' });
+    res.json({ message: 'Added to favorites', id, trackId });
   } catch (err) {
     res.status(500).json({ error: 'Failed to add favorite' });
   }
@@ -364,7 +393,7 @@ router.delete('/favorites/:trackId', requireAuth, (req, res) => {
 
   try {
     db.prepare('DELETE FROM favorites WHERE user_id = ? AND track_id = ?').run(userId, trackId);
-    res.json({ success: true, message: 'Removed from favorites' });
+    res.json({ message: 'Removed from favorites', trackId });
   } catch (err) {
     res.status(500).json({ error: 'Failed to remove favorite' });
   }
@@ -374,17 +403,16 @@ router.delete('/favorites/:trackId', requireAuth, (req, res) => {
 /* PLAYLISTS DATABASE CRUD                                                   */
 /* ========================================================================= */
 
-// Get all playlists
+// Get User Playlists
 router.get('/playlists', requireAuth, (req, res) => {
   const userId = req.user.id;
   try {
-    const playlists = db.prepare(`
-      SELECT p.*, (SELECT COUNT(*) FROM playlist_songs ps WHERE ps.playlist_id = p.id) as track_count
-      FROM playlists p
-      WHERE p.user_id = ?
-      ORDER BY p.updated_at DESC
-    `).all(userId);
-    res.json({ playlists });
+    const playlists = db.prepare('SELECT * FROM playlists WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    const enriched = playlists.map((pl) => {
+      const songs = db.prepare('SELECT * FROM playlist_songs WHERE playlist_id = ? ORDER BY position ASC').all(pl.id);
+      return { ...pl, songs, songCount: songs.length };
+    });
+    res.json({ playlists: enriched });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch playlists', playlists: [] });
   }
@@ -401,151 +429,90 @@ router.post('/playlists', requireAuth, (req, res) => {
 
   try {
     db.prepare(`
-      INSERT INTO playlists (id, user_id, name, description, cover_url, created_at, updated_at)
-      VALUES (?, ?, ?, ?, '', ?, ?)
+      INSERT INTO playlists (id, user_id, name, description, is_public, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 0, ?, ?)
     `).run(id, userId, name.trim(), description || '', now, now);
 
-    const created = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
-    res.status(201).json({ playlist: created, message: 'Playlist created' });
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+    res.status(201).json({ message: 'Playlist created', playlist: { ...playlist, songs: [], songCount: 0 } });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create playlist' });
-  }
-});
-
-// Get Single Playlist with Tracks
-router.get('/playlists/:id', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
-
-  try {
-    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(id, userId);
-    if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
-
-    const tracks = db.prepare(`
-      SELECT track_id as id, title, artist, thumbnail, duration, album, position, added_at
-      FROM playlist_songs
-      WHERE playlist_id = ?
-      ORDER BY position ASC, added_at ASC
-    `).all(id);
-
-    res.json({ playlist, tracks });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch playlist details' });
-  }
-});
-
-// Update / Rename Playlist
-router.put('/playlists/:id', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
-  const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'Playlist name required' });
-
-  const now = new Date().toISOString();
-  try {
-    db.prepare(`
-      UPDATE playlists SET name = ?, description = ?, updated_at = ?
-      WHERE id = ? AND user_id = ?
-    `).run(name.trim(), description || '', now, id, userId);
-
-    res.json({ success: true, message: 'Playlist updated' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update playlist' });
-  }
-});
-
-// Delete Playlist
-router.delete('/playlists/:id', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
-
-  try {
-    db.prepare('DELETE FROM playlists WHERE id = ? AND user_id = ?').run(id, userId);
-    res.json({ success: true, message: 'Playlist deleted' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete playlist' });
   }
 });
 
 // Add Song to Playlist
 router.post('/playlists/:id/songs', requireAuth, (req, res) => {
   const userId = req.user.id;
-  const { id: playlistId } = req.params;
+  const playlistId = req.params.id;
   const { trackId, title, artist, thumbnail, duration, album } = req.body;
-  if (!trackId || !title) return res.status(400).json({ error: 'Track details required' });
 
-  const playlist = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(playlistId, userId);
+  const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(playlistId, userId);
   if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
 
-  const songId = 'pls-' + uuidv4().slice(0, 8);
+  const id = 'ps-' + uuidv4().slice(0, 8);
+  const countRow = db.prepare('SELECT COUNT(*) as count FROM playlist_songs WHERE playlist_id = ?').get(playlistId);
+  const position = countRow ? countRow.count : 0;
   const now = new Date().toISOString();
 
   try {
-    const maxPos = db.prepare('SELECT MAX(position) as max_pos FROM playlist_songs WHERE playlist_id = ?').get(playlistId);
-    const nextPos = (maxPos?.max_pos ?? -1) + 1;
-
     db.prepare(`
-      INSERT OR REPLACE INTO playlist_songs (id, playlist_id, track_id, title, artist, thumbnail, duration, album, position, added_at)
+      INSERT INTO playlist_songs (id, playlist_id, track_id, title, artist, thumbnail, duration, album, position, added_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(songId, playlistId, trackId, title, artist || '', thumbnail || '', duration || '', album || '', nextPos, now);
+    `).run(id, playlistId, trackId, title, artist || '', thumbnail || '', duration || '', album || '', position, now);
 
-    db.prepare('UPDATE playlists SET updated_at = ? WHERE id = ?').run(now, playlistId);
-
-    res.json({ success: true, message: 'Track added to playlist' });
+    res.json({ message: 'Song added to playlist' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to add track to playlist' });
+    res.status(500).json({ error: 'Failed to add song to playlist' });
   }
 });
 
-// Remove Song from Playlist
-router.delete('/playlists/:id/songs/:trackId', requireAuth, (req, res) => {
+// Delete Playlist
+router.delete('/playlists/:id', requireAuth, (req, res) => {
   const userId = req.user.id;
-  const { id: playlistId, trackId } = req.params;
-
-  const playlist = db.prepare('SELECT id FROM playlists WHERE id = ? AND user_id = ?').get(playlistId, userId);
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+  const playlistId = req.params.id;
 
   try {
-    db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND track_id = ?').run(playlistId, trackId);
-    res.json({ success: true, message: 'Track removed from playlist' });
+    db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ?').run(playlistId);
+    db.prepare('DELETE FROM playlists WHERE id = ? AND user_id = ?').run(playlistId, userId);
+    res.json({ message: 'Playlist deleted' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to remove track from playlist' });
+    res.status(500).json({ error: 'Failed to delete playlist' });
   }
 });
 
 /* ========================================================================= */
-/* LISTENING HISTORY & STATS                                                 */
+/* LISTENING HISTORY & RECOMMENDATIONS                                       */
 /* ========================================================================= */
 
-// Record Track Played
-router.post('/history', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const { trackId, title, artist, thumbnail, duration, album, playDurationSeconds } = req.body;
+// Record Listening History
+router.post('/history', optionalAuth, (req, res) => {
+  const userId = req.user?.id || 'guest';
+  const { trackId, title, artist, thumbnail, duration, album, playDurationSeconds = 0 } = req.body;
   if (!trackId || !title) return res.status(400).json({ error: 'Track details required' });
 
-  const id = 'lh-' + uuidv4().slice(0, 8);
+  const id = 'hist-' + uuidv4().slice(0, 8);
   const now = new Date().toISOString();
 
   try {
     db.prepare(`
       INSERT INTO listening_history (id, user_id, track_id, title, artist, thumbnail, duration, album, played_at, play_duration_seconds)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, userId, trackId, title, artist || '', thumbnail || '', duration || '', album || '', now, Number(playDurationSeconds || 0));
+    `).run(id, userId, trackId, title, artist || '', thumbnail || '', duration || '', album || '', now, playDurationSeconds);
 
-    res.json({ success: true });
+    res.json({ message: 'History recorded', id });
   } catch (err) {
     res.status(500).json({ error: 'Failed to record history' });
   }
 });
 
 // Get Listening History
-router.get('/history', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const limit = Math.min(Number(req.query.limit || 50), 100);
+router.get('/history', optionalAuth, (req, res) => {
+  const userId = req.user?.id || 'guest';
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
 
   try {
     const history = db.prepare(`
-      SELECT id, track_id as trackId, title, artist, thumbnail, duration, album, played_at, play_duration_seconds
+      SELECT id, track_id as id, title, artist, thumbnail, duration, album, played_at, play_duration_seconds
       FROM listening_history
       WHERE user_id = ?
       ORDER BY played_at DESC
@@ -558,99 +525,65 @@ router.get('/history', requireAuth, (req, res) => {
   }
 });
 
-// Clear Listening History
-router.delete('/history', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  try {
-    db.prepare('DELETE FROM listening_history WHERE user_id = ?').run(userId);
-    res.json({ success: true, message: 'History cleared' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to clear history' });
-  }
-});
-
-// Delete Single History Item
-router.delete('/history/:id', requireAuth, (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
+// Get User Music Statistics & Personalized Recommendations
+router.get('/stats', optionalAuth, (req, res) => {
+  const userId = req.user?.id || 'guest';
 
   try {
-    db.prepare('DELETE FROM listening_history WHERE id = ? AND user_id = ?').run(id, userId);
-    res.json({ success: true, message: 'Item removed from history' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to remove history item' });
-  }
-});
-
-// Get Listening Statistics Dashboard
-router.get('/stats', requireAuth, (req, res) => {
-  const userId = req.user.id;
-
-  try {
-    const totalPlays = db.prepare('SELECT COUNT(*) as count FROM listening_history WHERE user_id = ?').get(userId).count;
-    const totalSeconds = db.prepare('SELECT COALESCE(SUM(play_duration_seconds), 0) as total FROM listening_history WHERE user_id = ?').get(userId).total;
-
-    const topTracks = db.prepare(`
-      SELECT track_id, title, artist, thumbnail, COUNT(*) as play_count
-      FROM listening_history
-      WHERE user_id = ?
-      GROUP BY track_id
-      ORDER BY play_count DESC
-      LIMIT 5
-    `).all(userId);
-
+    const totalTracks = db.prepare('SELECT COUNT(*) as count FROM listening_history WHERE user_id = ?').get(userId)?.count || 0;
     const topArtists = db.prepare(`
-      SELECT artist, COUNT(*) as play_count
+      SELECT artist, COUNT(*) as count
       FROM listening_history
       WHERE user_id = ? AND artist != ''
       GROUP BY artist
-      ORDER BY play_count DESC
+      ORDER BY count DESC
       LIMIT 5
     `).all(userId);
 
+    const totalSeconds = db.prepare('SELECT SUM(play_duration_seconds) as total FROM listening_history WHERE user_id = ?').get(userId)?.total || 0;
+
     res.json({
-      totalPlays,
-      totalMinutes: Math.round(totalSeconds / 60),
-      topTracks,
-      topArtists
+      stats: {
+        totalSongsPlayed: totalTracks,
+        totalListeningMinutes: Math.round(totalSeconds / 60),
+        topArtists
+      }
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch statistics' });
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
-// Rule-Based Smart Recommendations Engine
+// Get Dynamic Recommendations
 router.get('/recommendations', optionalAuth, async (req, res) => {
-  const userId = req.user?.id;
+  const userId = req.user?.id || 'guest';
 
-  let topArtists = [];
-  if (userId) {
-    try {
-      topArtists = db.prepare(`
-        SELECT artist FROM listening_history
-        WHERE user_id = ? AND artist != ''
-        GROUP BY artist
-        ORDER BY COUNT(*) DESC
-        LIMIT 3
-      `).all(userId).map(r => r.artist);
-    } catch {}
+  try {
+    const topArtistRow = db.prepare(`
+      SELECT artist
+      FROM listening_history
+      WHERE user_id = ? AND artist != ''
+      GROUP BY artist
+      ORDER BY COUNT(*) DESC
+      LIMIT 1
+    `).get(userId);
+
+    if (topArtistRow && topArtistRow.artist) {
+      const searchRes = await yts(`${topArtistRow.artist} songs`);
+      const tracks = (searchRes.videos || []).slice(0, 15).map((v) => ({
+        id: v.videoId,
+        title: v.title.replace(/(\[.*?\]|\(.*?\))/g, '').trim(),
+        artist: v.author?.name || topArtistRow.artist,
+        duration: v.timestamp,
+        thumbnail: v.thumbnail
+      }));
+      return res.json({ recommendations: tracks, basedOn: topArtistRow.artist });
+    }
+
+    res.json({ recommendations: SPOTIFY_JIOSAAVN_TOP_SONGS.slice(0, 15), basedOn: 'Trending Charts' });
+  } catch {
+    res.json({ recommendations: SPOTIFY_JIOSAAVN_TOP_SONGS.slice(0, 15), basedOn: 'Trending Charts' });
   }
-
-  // Combine top preset chartbusters and artist-based recommendations
-  let recs = [...SPOTIFY_JIOSAAVN_TOP_SONGS];
-  if (topArtists.length > 0) {
-    recs = recs.sort((a, b) => {
-      const matchA = topArtists.some(art => a.artist.toLowerCase().includes(art.toLowerCase()));
-      const matchB = topArtists.some(art => b.artist.toLowerCase().includes(art.toLowerCase()));
-      return matchB - matchA;
-    });
-  }
-
-  res.json({
-    recommendedForYou: recs.slice(0, 10),
-    becauseYouListenedTo: topArtists.length > 0 ? { artist: topArtists[0], tracks: recs.filter(t => t.artist.toLowerCase().includes(topArtists[0].toLowerCase())).slice(0, 6) } : null,
-    albums: CURATED_ALBUMS
-  });
 });
 
 module.exports = router;

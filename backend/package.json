@@ -5,9 +5,11 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "postinstall": "mkdir -p bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o bin/yt-dlp && chmod +x bin/yt-dlp || true"
   },
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
@@ -21,6 +23,7 @@
     "morgan": "^1.10.1",
     "multer": "^2.3.0",
     "pg": "^8.23.0",
+    "play-dl": "^1.9.7",
     "socket.io": "^4.8.3",
     "uuid": "^13.0.0",
     "yt-search": "^2.13.1"
