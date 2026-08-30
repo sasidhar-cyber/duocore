@@ -1,102 +1,157 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { RoomProvider } from './context/RoomContext';
+import { RoomProvider, useRoom } from './context/RoomContext';
+import { MusicProvider, useMusic } from './context/MusicContext';
 import { Navbar } from './components/Navbar';
-import { playSound } from './utils/soundEffects';
-
-import { LandingPage } from './pages/LandingPage';
+import { MusicHomePage } from './pages/MusicHomePage';
+import { MusicPlayerBar } from './components/MusicPlayerBar';
+import { NowPlayingModal } from './components/NowPlayingModal';
+import { LyricsModal } from './components/LyricsModal';
+import { SecretRoomModal } from './components/SecretRoomModal';
+import { QueueDrawer } from './components/QueueDrawer';
+import { PlaylistModal } from './components/PlaylistModal';
+import { StatsModal } from './components/StatsModal';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { NetworkStatusBanner } from './components/NetworkStatusBanner';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { AuthPage } from './pages/AuthPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { CyberRoadmapGamePage } from './pages/CyberRoadmapGamePage';
-import { LinuxLabPage } from './pages/LinuxLabPage';
-import { StudyRoomDashboard } from './pages/StudyRoomDashboard';
-import { QuizArenaPage } from './pages/QuizArenaPage';
+import api from './services/api';
 
 function AppContent() {
-  const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [duelChallenge, setDuelChallenge] = useState(null);
+  const { user, register, loading } = useAuth();
+  const { refreshPartnerState } = useRoom();
+  const { isNowPlayingOpen, closeNowPlaying, playTrack, openSecretChat } = useMusic();
+  const [authOpen, setAuthOpen] = useState(false);
+
+  // Check URL query parameters for 1-Click Instant Invite & Deep Links
+  useEffect(() => {
+    const handleUrlActions = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const inviteCode = params.get('invite');
+        const songId = params.get('song');
+        const action = params.get('action');
+
+        if (inviteCode) {
+          const cleanCode = inviteCode.toUpperCase();
+          window.history.replaceState({}, document.title, window.location.pathname);
+
+          // Auto-authenticate guest if needed
+          if (!user) {
+            try {
+              const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+              await register({
+                username: guestName,
+                email: `${guestName.toLowerCase()}@soundwave.local`,
+                password: 'secret_guest_pass'
+              });
+            } catch (e) {}
+          }
+
+          try {
+            await api.acceptInvite(cleanCode);
+            await refreshPartnerState();
+            openSecretChat();
+          } catch (err) {
+            console.warn('[Auto-Join Invite] Error:', err);
+          }
+        }
+
+        if (songId) {
+          api.searchMusic(songId)
+            .then((res) => {
+              if (res.results && res.results.length > 0) {
+                playTrack(res.results[0]);
+              }
+            })
+            .catch(() => {});
+        }
+
+        if (action === 'chat') {
+          openSecretChat();
+        }
+      } catch (e) {}
+    };
+
+    if (!loading) {
+      handleUrlActions();
+    }
+  }, [loading, user]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white select-none">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono tracking-widest uppercase text-cyan-400">Loading DUOCORE...</span>
+          <img
+            src="/icons/icon-192x192.png"
+            alt="SoundWave"
+            className="w-16 h-16 rounded-3xl object-cover ring-2 ring-emerald-500/40 shadow-2xl animate-pulse"
+          />
+          <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-mono tracking-widest uppercase text-emerald-400 font-bold">
+            SoundWave Starting...
+          </span>
         </div>
       </div>
     );
   }
 
-  if (!user && activeTab !== 'auth') {
-    return (
-      <LandingPage
-        onGetStarted={() => setActiveTab('auth')}
-      />
-    );
+  if (authOpen && !user) {
+    return <AuthPage onAuthenticated={() => setAuthOpen(false)} />;
   }
-
-  if (!user && activeTab === 'auth') {
-    return <AuthPage onAuthenticated={() => setActiveTab('dashboard')} />;
-  }
-
-  const handleChallengeFriend = (levelId, levelTitle) => {
-    setDuelChallenge({ levelId, levelTitle });
-    setActiveTab('quiz');
-    playSound('quiz_correct');
-  };
 
   return (
-    <RoomProvider>
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-pink-500/30 selection:text-white relative">
-        <Navbar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-white relative">
+      {/* Offline / Online Network Indicator */}
+      <NetworkStatusBanner />
 
-        <main className="flex-1 pb-16">
-          {activeTab === 'dashboard' && (
-            <DashboardPage
-              onSelectTrack={(track) => setActiveTab(track)}
-              onOpenRoom={() => setActiveTab('room')}
-              onChallengeQuiz={() => setActiveTab('quiz')}
-            />
-          )}
+      {/* PWA Mobile Install Prompt */}
+      <PWAInstallPrompt />
 
-          {activeTab === 'cyber' && (
-            <CyberRoadmapGamePage
-              onChallengeFriend={handleChallengeFriend}
-            />
-          )}
+      <Navbar onOpenAuth={() => setAuthOpen(true)} />
 
-          {activeTab === 'linux' && (
-            <LinuxLabPage
-              onChallengeFriend={handleChallengeFriend}
-            />
-          )}
+      <main className="flex-1">
+        <MusicHomePage />
+      </main>
 
-          {activeTab === 'room' && (
-            <StudyRoomDashboard
-              onSelectTrack={(track) => setActiveTab(track)}
-            />
-          )}
+      {/* Global Bottom Sticky Music Player */}
+      <MusicPlayerBar />
 
-          {activeTab === 'quiz' && (
-            <QuizArenaPage
-              duelChallenge={duelChallenge}
-              onClearChallenge={() => setDuelChallenge(null)}
-            />
-          )}
-        </main>
-      </div>
-    </RoomProvider>
+      {/* Full Screen Now Playing View */}
+      <NowPlayingModal
+        isOpen={isNowPlayingOpen}
+        onClose={closeNowPlaying}
+      />
+
+      {/* Synchronized Karaoke Lyrics Modal */}
+      <LyricsModal />
+
+      {/* Queue Drawer */}
+      <QueueDrawer />
+
+      {/* Playlist Add / Create Modal */}
+      <PlaylistModal />
+
+      {/* Listening Analytics & Stats Modal */}
+      <StatsModal />
+
+      {/* Keyboard Shortcuts Help Modal */}
+      <KeyboardShortcutsModal />
+
+      {/* Stealth Disguised Secret Room Modal */}
+      <SecretRoomModal />
+    </div>
   );
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <RoomProvider>
+        <MusicProvider>
+          <AppContent />
+        </MusicProvider>
+      </RoomProvider>
     </AuthProvider>
   );
 }

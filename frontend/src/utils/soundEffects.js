@@ -14,7 +14,8 @@ function getAudioContext() {
 
 export function playSound(type = 'click') {
   try {
-    const soundEnabled = localStorage.getItem('duocore_sound_enabled') !== 'false';
+    // Sound effects muted by default per user preference ("sounds ani appe only notification ravali")
+    const soundEnabled = localStorage.getItem('duocore_sound_enabled') === 'true';
     if (!soundEnabled) return;
 
     const ctx = getAudioContext();

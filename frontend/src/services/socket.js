@@ -15,9 +15,10 @@ export function getSocket() {
     currentToken = token;
     socket = io(SOCKET_URL, {
       auth: { token },
-      autoConnect: false,
+      transports: ['polling', 'websocket'],
+      autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 15,
+      reconnectionAttempts: 30,
       reconnectionDelay: 1000
     });
   }
@@ -37,9 +38,10 @@ export function connectSocket(token) {
   if (!socket) {
     socket = io(SOCKET_URL, {
       auth: { token: activeToken },
+      transports: ['polling', 'websocket'],
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 15,
+      reconnectionAttempts: 30,
       reconnectionDelay: 1000
     });
   } else {

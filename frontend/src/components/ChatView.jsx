@@ -1,49 +1,57 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRoom } from '../context/RoomContext';
+import { useMusic } from '../context/MusicContext';
 import { getSocket } from '../services/socket';
-import { getHackerRank } from '../utils/hackerTitles';
 import { VideoCallModal } from './VideoCallModal';
+import { AudioCallModal } from './AudioCallModal';
 import { IncomingCallModal } from './IncomingCallModal';
+import { CameraCaptureModal } from './CameraCaptureModal';
+import { formatLastSeen } from '../utils/timeFormat';
 import api from '../services/api';
 import {
   Send,
   Reply,
-  Shield,
-  Lock,
-  Unlock,
-  MessageSquare,
-  Sparkles,
   Paperclip,
   Image as ImageIcon,
-  FileText,
-  Video as VideoIcon,
   MapPin,
-  Download,
-  ExternalLink,
   X,
-  UserPlus,
-  ArrowLeft,
   Mic,
-  Search,
-  Users,
-  Swords,
-  Radio,
-  Clock,
   Video,
   Phone,
+  Check,
   CheckCheck,
-  Bell,
-  ChevronLeft
+  Trash2,
+  Camera,
+  CornerDownRight,
+  MoreVertical,
+  LogOut,
+  Smile,
+  Copy,
+  Star,
+  Pin,
+  Search,
+  FolderOpen,
+  Palette,
+  Play,
+  Music2,
+  Disc3,
+  ExternalLink
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
-const QUICK_EMOJIS = ['🔥', '🛡️', '⚡', '💯', '🧠', '🐧'];
+const CHAT_THEMES = [
+  { id: 'default', name: 'Emerald Wave (Default)', bg: 'bg-slate-950/95', bubbleMe: 'bg-emerald-600', bubbleOther: 'bg-slate-900' },
+  { id: 'amoled', name: 'Pure AMOLED Black', bg: 'bg-black', bubbleMe: 'bg-slate-800', bubbleOther: 'bg-zinc-900' },
+  { id: 'neon', name: 'Neon Cyber Glow', bg: 'bg-slate-950', bubbleMe: 'bg-pink-600', bubbleOther: 'bg-slate-900' },
+  { id: 'minimal', name: 'Minimal Slate', bg: 'bg-slate-900', bubbleMe: 'bg-cyan-600', bubbleOther: 'bg-slate-800' }
+];
 
-// Audio Memo Custom Player
-function AudioMemoPlayer({ fileUrl, duration }) {
+// WhatsApp Style Voice Note Player
+function AudioMemoPlayer({ fileUrl }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const audioRef = useRef(null);
 
   const togglePlay = () => {
@@ -64,36 +72,31 @@ function AudioMemoPlayer({ fileUrl, duration }) {
   };
 
   return (
-    <div className="p-3 rounded-2xl bg-black/40 border border-white/10 flex items-center gap-3 w-64 max-w-full">
+    <div className="p-2 sm:p-2.5 rounded-2xl bg-black/30 border border-white/10 flex items-center gap-3 w-64 max-w-full">
       <audio
         ref={audioRef}
         src={fileUrl}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
         onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
       />
       <button
         onClick={togglePlay}
-        type="button"
-        className="w-9 h-9 rounded-xl bg-pink-600 hover:bg-pink-500 text-white flex items-center justify-center shadow-md shrink-0 transition-transform active:scale-95"
+        className="w-9 h-9 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-bold text-sm shrink-0 transition-transform active:scale-95 shadow-md shadow-emerald-500/30"
       >
-        {isPlaying ? <span className="font-bold">⏸</span> : <span className="font-bold text-xs pl-0.5">▶</span>}
+        {isPlaying ? '⏸' : '▶'}
       </button>
 
-      <div className="flex-1 min-w-0 space-y-1">
-        <div className="flex items-center gap-1 h-4">
-          {[40, 70, 30, 90, 60, 100, 45, 80, 50, 95, 30, 60].map((h, i) => (
-            <div
-              key={i}
-              className={`w-1 rounded-full transition-all ${
-                isPlaying ? 'bg-pink-400 animate-pulse' : 'bg-slate-600'
-              }`}
-              style={{ height: `${isPlaying ? Math.max(20, (h * Math.random()).toFixed(0)) : h}%` }}
-            />
-          ))}
+      <div className="flex-1 space-y-1">
+        <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-emerald-400 rounded-full transition-all duration-100"
+            style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+          />
         </div>
-        <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+        <div className="flex justify-between text-[10px] font-mono text-slate-400">
           <span>{formatSecs(currentTime)}</span>
-          <span>Voice Memo</span>
+          <span>{formatSecs(duration)}</span>
         </div>
       </div>
     </div>
@@ -103,1271 +106,909 @@ function AudioMemoPlayer({ fileUrl, duration }) {
 export function ChatView({ onOpenInvite }) {
   const { user } = useAuth();
   const {
-    hasRoom,
+    roomData,
     members,
     partner,
-    roomData,
+    normalMessages,
+    sendMessage,
+    partnerTyping,
     sendTyping,
-    reactToMessage
+    refreshPartnerState
   } = useRoom();
 
-  const [input, setInput] = useState('');
+  const { playTrack, openNowPlaying } = useMusic();
+
+  const otherPartner = partner || (members && members.find((m) => m.id !== user?.id)) || {
+    id: 'partner-default',
+    username: 'Duo Partner',
+    is_online: false,
+    last_seen: null
+  };
+
+  const [messageText, setMessageText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+
+  // Search in Chat
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Selected Friend in WhatsApp style list
-  const otherMembers = useMemo(() => members.filter((m) => m.id !== user?.id), [members, user?.id]);
-  const [selectedFriend, setSelectedFriend] = useState(null);
+  // Media Gallery & Starred Drawers
+  const [mediaGalleryOpen, setMediaGalleryOpen] = useState(false);
+  const [mediaData, setMediaData] = useState(null);
+  const [starredOpen, setStarredOpen] = useState(false);
+  const [starredList, setStarredList] = useState([]);
+  const [pinnedList, setPinnedList] = useState([]);
 
-  // Mobile Screen View State: 'contacts' (view contacts list) | 'conversation' (view active chat)
-  const [mobileScreen, setMobileScreen] = useState('contacts');
+  // Chat Theme
+  const [chatTheme, setChatTheme] = useState(() => localStorage.getItem('soundwave_chat_theme') || 'default');
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
 
-  // Unread badge counts map: userId -> count
-  const [unreadCounts, setUnreadCounts] = useState({});
+  // Location Modal Confirmation
+  const [locationConfirmOpen, setLocationConfirmOpen] = useState(false);
 
-  // Typing status map: userId -> boolean
-  const [typingMap, setTypingMap] = useState({});
-
-  // In-App Toast Notification
-  const [toastNotification, setToastNotification] = useState(null);
-
-  // Video Call State
+  // Calls
   const [videoCallOpen, setVideoCallOpen] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // { caller, callType, roomId }
-
-  // Mode: 'direct' (standard 1v1 WhatsApp chat) or 'vault' (PIN-protected 1v1 vault)
-  const [chatMode, setChatMode] = useState('direct');
-  const [messages, setMessages] = useState([]);
-
-  // Vault Unlock State
-  const [isPrivateUnlocked, setIsPrivateUnlocked] = useState(false);
-  const [enteredPin, setEnteredPin] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [showPinSetting, setShowPinSetting] = useState(false);
-  const [customPinInput, setCustomPinInput] = useState('');
-
-  // Media attachment states
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
-  const [lightboxImage, setLightboxImage] = useState(null);
+  const [audioCallOpen, setAudioCallOpen] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null);
 
   // Voice Note Recording
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const recordingTimerRef = useRef(null);
-
-  const fileInputRef = useRef(null);
-  const [fileInputAccept, setFileInputAccept] = useState('*');
-  const [pendingUploadType, setPendingUploadType] = useState('file');
+  const timerRef = useRef(null);
 
   const messagesEndRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  const savedPin = localStorage.getItem('duocore_vault_pin') || '1234';
-
-  // Compute active channel ID for current friend & mode
-  const currentChannelId = useMemo(() => {
-    if (!selectedFriend || !user) return 'normal';
-    const ids = [user.id, selectedFriend.id].sort();
-    return chatMode === 'vault' ? `private:${ids[0]}:${ids[1]}` : `dm:${ids[0]}:${ids[1]}`;
-  }, [selectedFriend, user, chatMode]);
-
-  // Fetch message history for active conversation
-  const loadActiveMessages = useCallback(async () => {
-    if (!roomData || !currentChannelId || !selectedFriend) return;
-    try {
-      const res = await api.getRoomMessages(roomData.id, currentChannelId);
-      setMessages(res.messages || []);
-    } catch (err) {
-      console.error('[ChatView] Failed to load messages:', err);
-    }
-  }, [currentChannelId, roomData, selectedFriend]);
-
-  useEffect(() => {
-    loadActiveMessages();
-  }, [loadActiveMessages]);
-
-  // Real-time socket message & call listeners
-  useEffect(() => {
-    const s = getSocket();
-    if (!s) return;
-
-    // 1. Incoming Message Handler
-    const handleNewMessage = (msg) => {
-      if (msg.room_id === roomData?.id) {
-        if (msg.channel_type === currentChannelId) {
-          // If active chat is open, append directly
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            return [...prev, msg];
-          });
-        } else if (msg.sender_id !== user?.id) {
-          // Inactive chat: increment unread badge counter
-          setUnreadCounts((prev) => ({
-            ...prev,
-            [msg.sender_id]: (prev[msg.sender_id] || 0) + 1
-          }));
-
-          // Show floating in-app notification toast
-          setToastNotification({
-            senderId: msg.sender_id,
-            username: msg.username,
-            avatar_url: msg.avatar_url,
-            text: msg.text || (msg.type === 'audio' ? '🎤 Voice Note' : '📷 Media attachment'),
-            channel: msg.channel_type
-          });
-
-          // Auto-hide toast after 4.5s
-          setTimeout(() => {
-            setToastNotification(null);
-          }, 4500);
-        }
-
-        if (msg.sender_id !== user?.id) {
-          playSound('message');
-        }
-      }
-    };
-
-    // 2. Typing indicator listener
-    const handleTypingEvent = ({ channel, isTyping: partnerIsTyping, userId }) => {
-      setTypingMap((prev) => ({
-        ...prev,
-        [userId]: partnerIsTyping
-      }));
-    };
-
-    // 3. Incoming Call Ringing listener
-    const handleIncomingCall = (data) => {
-      setIncomingCall(data);
-      playSound('message');
-    };
-
-    // 4. Call Declined listener
-    const handleCallDeclined = ({ username }) => {
-      alert(`${username || 'User'} declined the call.`);
-      setVideoCallOpen(false);
-    };
-
-    s.on('chat:new_message', handleNewMessage);
-    s.on('chat:partner_typing', handleTypingEvent);
-    s.on('call:incoming_ring', handleIncomingCall);
-    s.on('call:declined', handleCallDeclined);
-
-    return () => {
-      s.off('chat:new_message', handleNewMessage);
-      s.off('chat:partner_typing', handleTypingEvent);
-      s.off('call:incoming_ring', handleIncomingCall);
-      s.off('call:declined', handleCallDeclined);
-    };
-  }, [roomData?.id, currentChannelId, user?.id, selectedFriend?.id]);
-
+  // Auto Scroll to Bottom on New Message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isPrivateUnlocked, selectedFriend, chatMode, typingMap]);
+  }, [normalMessages, partnerTyping]);
 
-  const handleSelectFriend = (friend) => {
-    setSelectedFriend(friend);
-    setChatMode('direct');
-    setIsPrivateUnlocked(false);
-    setMobileScreen('conversation'); // Switch to active chat on mobile
-
-    // Clear unread count for this friend
-    setUnreadCounts((prev) => ({
-      ...prev,
-      [friend.id]: 0
-    }));
-
-    playSound('click');
-  };
-
-  const handleBackToContacts = () => {
-    setMobileScreen('contacts');
-    playSound('click');
-  };
-
-  const handleInputChange = (e) => {
-    setInput(e.target.value);
-    const s = getSocket();
-    if (s && roomData) {
-      s.emit('chat:typing', { roomId: roomData.id, channel: currentChannelId, isTyping: true });
+  // Load Pinned & Starred Messages on Mount
+  useEffect(() => {
+    if (roomData?.id) {
+      api.getPinnedMessages(roomData.id)
+        .then((res) => setPinnedList(res.pinned || []))
+        .catch(() => {});
     }
+  }, [roomData?.id]);
 
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      if (s && roomData) {
-        s.emit('chat:typing', { roomId: roomData.id, channel: currentChannelId, isTyping: false });
-      }
-    }, 1500);
+  // Handle Typing Indicator
+  const handleTextChange = (e) => {
+    setMessageText(e.target.value);
+    sendTyping('normal', true);
   };
 
-  // Start Outbound Video or Audio Call
-  const handleStartCall = (callType = 'video') => {
-    if (!selectedFriend || !roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('call:start_call', {
-        targetUserId: selectedFriend.id,
-        roomId: roomData.id,
-        callType
-      });
-    }
-    setVideoCallOpen(true);
-    playSound('click');
-  };
+  // Send Message
+  const handleSendMessage = (e) => {
+    e?.preventDefault();
+    if (!messageText.trim()) return;
 
-  // Accept Incoming Call
-  const handleAcceptIncomingCall = () => {
-    const call = incomingCall;
-    setIncomingCall(null);
-    if (call) {
-      const friend = otherMembers.find((m) => m.id === call.caller.id);
-      if (friend) {
-        setSelectedFriend(friend);
-        setMobileScreen('conversation');
-      }
-      setVideoCallOpen(true);
-      playSound('quiz_correct');
-    }
-  };
+    sendMessage({
+      text: messageText.trim(),
+      channel: 'normal',
+      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, username: replyTo.username } : null
+    });
 
-  // Decline Incoming Call
-  const handleDeclineIncomingCall = () => {
-    const call = incomingCall;
-    setIncomingCall(null);
-    const s = getSocket();
-    if (s && call) {
-      s.emit('call:decline_call', {
-        callerSocketId: call.caller.socketId,
-        targetUserId: call.caller.id,
-        roomId: call.roomId
-      });
-    }
-    playSound('quiz_wrong');
-  };
-
-  // Robust Message Sender with Socket + HTTP Fallback
-  const handleSend = async (e) => {
-    if (e) e.preventDefault();
-    const cleanText = input.trim();
-    if (!cleanText || !roomData || !selectedFriend) return;
-
-    setInput('');
-    const rep = replyTo;
+    setMessageText('');
     setReplyTo(null);
-
-    const s = getSocket();
-    if (s && roomData) {
-      s.emit('chat:typing', { roomId: roomData.id, channel: currentChannelId, isTyping: false });
-    }
-    playSound('click');
-
-    try {
-      if (s && s.connected) {
-        s.emit('chat:send_message', {
-          roomId: roomData.id,
-          text: cleanText,
-          channel: currentChannelId,
-          metadata: {},
-          replyToId: rep?.id || null
-        });
-      } else {
-        const res = await api.sendRoomMessage(roomData.id, {
-          text: cleanText,
-          channel: currentChannelId,
-          replyToId: rep?.id || null,
-          metadata: {}
-        });
-        if (res.data) {
-          setMessages((prev) => [...prev, res.data]);
-        }
-      }
-    } catch (err) {
-      alert('Failed to send message: ' + err.message);
-    }
+    sendTyping('normal', false);
+    playSound('send');
   };
 
-  // Voice Note Recording
-  const startVoiceRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        if (audioBlob.size > 100) {
-          uploadAndSendVoiceNote(audioBlob);
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecordingVoice(true);
-      setRecordingSeconds(0);
-      playSound('click');
-
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch (err) {
-      alert('Microphone access is needed for recording voice notes: ' + err.message);
-    }
-  };
-
-  const stopAndSendVoiceRecording = () => {
-    if (mediaRecorderRef.current && isRecordingVoice) {
-      mediaRecorderRef.current.stop();
-      setIsRecordingVoice(false);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    }
-  };
-
-  const cancelVoiceRecording = () => {
-    if (mediaRecorderRef.current && isRecordingVoice) {
-      audioChunksRef.current = [];
-      mediaRecorderRef.current.stop();
-      setIsRecordingVoice(false);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      playSound('click');
-    }
-  };
-
-  const uploadAndSendVoiceNote = async (audioBlob) => {
-    if (!roomData) return;
-    setUploading(true);
-    setUploadProgress('Sending Voice Note...');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', audioBlob, `voice-note-${Date.now()}.webm`);
-
-      const uploadRes = await api.uploadFile(roomData.id, formData);
-      playSound('quiz_correct');
-
-      const s = getSocket();
-      const meta = {
-        fileUrl: uploadRes.fileUrl,
-        fileName: uploadRes.fileName,
-        duration: recordingSeconds,
-        mimeType: 'audio/webm'
-      };
-
-      if (s && s.connected) {
-        s.emit('chat:send_message', {
-          roomId: roomData.id,
-          text: '🎤 Voice Note',
-          type: 'audio',
-          channel: currentChannelId,
-          metadata: meta,
-          replyToId: replyTo?.id || null
-        });
-      } else {
-        const res = await api.sendRoomMessage(roomData.id, {
-          text: '🎤 Voice Note',
-          type: 'audio',
-          channel: currentChannelId,
-          metadata: meta,
-          replyToId: replyTo?.id || null
-        });
-        if (res.data) setMessages((prev) => [...prev, res.data]);
-      }
-    } catch (err) {
-      alert('Failed to send voice note: ' + err.message);
-    } finally {
-      setUploading(false);
-      setUploadProgress('');
-    }
-  };
-
-  const triggerFileUpload = (acceptType, category) => {
-    setFileInputAccept(acceptType);
-    setPendingUploadType(category);
-    setAttachmentMenuOpen(false);
-    setTimeout(() => {
-      fileInputRef.current?.click();
-    }, 100);
-  };
-
-  const handleFileSelected = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !roomData) return;
-
-    setUploading(true);
-    setUploadProgress(`Uploading ${file.name}...`);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const uploadRes = await api.uploadFile(roomData.id, formData);
-      playSound('quiz_correct');
-
-      const s = getSocket();
-      const meta = {
-        fileUrl: uploadRes.fileUrl,
-        fileName: uploadRes.fileName,
-        fileSize: uploadRes.fileSize,
-        mimeType: uploadRes.mimeType
-      };
-
-      const msgText = input.trim() || `Shared a ${uploadRes.type}: ${uploadRes.fileName}`;
-
-      if (s && s.connected) {
-        s.emit('chat:send_message', {
-          roomId: roomData.id,
-          text: msgText,
-          type: uploadRes.type,
-          channel: currentChannelId,
-          metadata: meta,
-          replyToId: replyTo?.id || null
-        });
-      } else {
-        const res = await api.sendRoomMessage(roomData.id, {
-          text: msgText,
-          type: uploadRes.type,
-          channel: currentChannelId,
-          metadata: meta,
-          replyToId: replyTo?.id || null
-        });
-        if (res.data) setMessages((prev) => [...prev, res.data]);
-      }
-
-      setInput('');
-      setReplyTo(null);
-    } catch (err) {
-      alert('Upload failed: ' + (err.message || 'File too large'));
-      playSound('quiz_wrong');
-    } finally {
-      setUploading(false);
-      setUploadProgress('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleShareLiveLocation = () => {
-    setAttachmentMenuOpen(false);
+  // Send Location
+  const executeSendLocation = () => {
+    setLocationConfirmOpen(false);
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
       return;
     }
 
-    setUploading(true);
-    setUploadProgress('Detecting GPS location...');
-
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        setUploading(false);
-        setUploadProgress('');
-
-        const meta = {
-          latitude,
-          longitude,
-          address: `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`
-        };
-
-        const s = getSocket();
-        if (s && s.connected) {
-          s.emit('chat:send_message', {
-            roomId: roomData.id,
-            text: input.trim() || '📍 Shared Live Location',
-            channel: currentChannelId,
-            metadata: meta,
-            replyToId: replyTo?.id || null
-          });
-        }
-        setInput('');
-        setReplyTo(null);
-        playSound('quiz_correct');
+        sendMessage({
+          text: `📍 Shared Live Location: https://www.google.com/maps?q=${latitude},${longitude}`,
+          channel: 'normal'
+        });
+        playSound('send');
       },
-      (err) => {
-        setUploading(false);
-        setUploadProgress('');
-        const meta = {
-          latitude: 17.3850,
-          longitude: 78.4867,
-          address: 'Cyber Security Lab, Hyderabad'
-        };
-        const s = getSocket();
-        if (s && s.connected) {
-          s.emit('chat:send_message', {
-            roomId: roomData.id,
-            text: input.trim() || '📍 Shared Location: Cyber Security Lab',
-            channel: currentChannelId,
-            metadata: meta,
-            replyToId: replyTo?.id || null
-          });
-        }
-        setInput('');
-        setReplyTo(null);
-        playSound('quiz_correct');
-      },
-      { timeout: 10000 }
+      () => alert('Unable to retrieve location.')
     );
   };
 
-  // Open Vault from Attachment Menu (Placed last next to Location)
-  const handleOpenVaultFromMenu = () => {
-    setAttachmentMenuOpen(false);
-    setChatMode('vault');
-    playSound('click');
-  };
+  // Send Camera / File Upload
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleUnlockVault = (e) => {
-    e.preventDefault();
-    setPinError('');
+    const formData = new FormData();
+    formData.append('file', file);
 
-    if (enteredPin === savedPin) {
-      setIsPrivateUnlocked(true);
-      setEnteredPin('');
-      playSound('quiz_correct');
-    } else {
-      setPinError('Incorrect Passkey PIN. Try again.');
-      playSound('quiz_wrong');
-      setEnteredPin('');
+    try {
+      const res = await api.uploadFile(formData);
+      sendMessage({
+        text: file.type.startsWith('image/') ? '📷 Photo' : '📎 Attachment',
+        channel: 'normal',
+        fileUrl: res.fileUrl,
+        fileType: file.type
+      });
+      playSound('send');
+    } catch (err) {
+      alert('Failed to upload file.');
     }
   };
 
-  const handleSaveCustomPin = (e) => {
-    e.preventDefault();
-    if (customPinInput.length < 4) {
-      setPinError('PIN must be at least 4 digits.');
-      return;
+  // Send Voice Note
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'voicenote.webm');
+
+        try {
+          const res = await api.uploadFile(formData);
+          sendMessage({
+            text: '🎤 Voice Note',
+            channel: 'normal',
+            fileUrl: res.fileUrl,
+            fileType: 'audio/webm'
+          });
+          playSound('send');
+        } catch (err) {
+          console.warn('Voice upload failed:', err);
+        }
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch (err) {
+      alert('Microphone access denied.');
     }
-    localStorage.setItem('duocore_vault_pin', customPinInput);
-    setShowPinSetting(false);
-    setCustomPinInput('');
-    playSound('quiz_correct');
   };
 
-  const selectedRank = selectedFriend ? getHackerRank(selectedFriend.level || 1, selectedFriend.xp || 0) : null;
-  const isSelectedFriendTyping = selectedFriend && typingMap[selectedFriend.id];
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
+  };
+
+  // Star / Pin Actions
+  const handleToggleStar = async (msg) => {
+    if (!roomData?.id) return;
+    try {
+      if (msg.is_starred) {
+        await api.unstarMessage(roomData.id, msg.id);
+      } else {
+        await api.starMessage(roomData.id, msg.id);
+      }
+      refreshPartnerState();
+    } catch {}
+  };
+
+  const handleTogglePin = async (msg) => {
+    if (!roomData?.id) return;
+    try {
+      if (msg.is_pinned) {
+        await api.unpinMessage(roomData.id, msg.id);
+      } else {
+        await api.pinMessage(roomData.id, msg.id);
+      }
+      refreshPartnerState();
+      api.getPinnedMessages(roomData.id).then((res) => setPinnedList(res.pinned || []));
+    } catch {}
+  };
+
+  const handleDeleteMessage = async (msgId) => {
+    if (window.confirm('Delete this message for everyone?')) {
+      try {
+        await api.deleteMessage(roomData?.id, msgId);
+        refreshPartnerState();
+      } catch {}
+    }
+  };
+
+  // Open Media Gallery
+  const handleOpenMediaGallery = async () => {
+    if (!roomData?.id) return;
+    try {
+      const res = await api.getMediaGallery(roomData.id);
+      setMediaData(res);
+      setMediaGalleryOpen(true);
+    } catch {}
+  };
+
+  // Open Starred Messages
+  const handleOpenStarred = async () => {
+    if (!roomData?.id) return;
+    try {
+      const res = await api.getStarredMessages(roomData.id);
+      setStarredList(res.starred || []);
+      setStarredOpen(true);
+    } catch {}
+  };
+
+  // Filter messages based on chat search query
+  const displayedMessages = useMemo(() => {
+    if (!searchQuery.trim()) return normalMessages;
+    return normalMessages.filter((m) =>
+      m.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [normalMessages, searchQuery]);
+
+  // Unpair / Disconnect from Partner
+  const handleUnpair = async () => {
+    if (window.confirm('Are you sure you want to disconnect from this Duo room?')) {
+      try {
+        await api.leaveRoom(roomData?.id);
+        await refreshPartnerState();
+        playSound('quiz_wrong');
+      } catch (err) {
+        await refreshPartnerState();
+      }
+    }
+  };
+
+  const currentThemeObj = CHAT_THEMES.find((t) => t.id === chatTheme) || CHAT_THEMES[0];
+  const isPartnerTyping = partnerTyping?.normal;
+  const partnerAvatar = otherPartner?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(otherPartner?.username || 'partner')}`;
 
   return (
-    <div className="flex h-full w-full glass-panel rounded-2xl sm:rounded-3xl border border-slate-800 shadow-2xl overflow-hidden bg-slate-950/95 relative">
-      <input
-        type="file"
-        ref={fileInputRef}
-        accept={fileInputAccept}
-        onChange={handleFileSelected}
-        className="hidden"
-      />
+    <div className={`h-full w-full flex flex-col ${currentThemeObj.bg} rounded-3xl border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}>
+      {/* ========================================================================= */}
+      {/* 1. WHATSAPP STYLE 1v1 HEADER                                              */}
+      {/* ========================================================================= */}
+      <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative shrink-0">
+            <img
+              src={partnerAvatar}
+              alt={otherPartner.username}
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl object-cover ring-2 ring-emerald-500/40"
+            />
+            <div
+              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
+                otherPartner.is_online ? 'bg-emerald-400' : 'bg-slate-600'
+              }`}
+            />
+          </div>
 
-      {/* Floating In-App Toast Notification */}
-      {toastNotification && (
-        <div
-          onClick={() => {
-            const friend = otherMembers.find((m) => m.id === toastNotification.senderId);
-            if (friend) handleSelectFriend(friend);
-            setToastNotification(null);
-          }}
-          className="absolute top-3 right-3 left-3 sm:left-auto z-50 p-3 sm:p-3.5 rounded-2xl bg-slate-900/95 border border-pink-500/50 shadow-2xl flex items-center gap-3 cursor-pointer animate-in slide-in-from-top-4 duration-200 sm:max-w-sm"
-        >
-          <img
-            src={toastNotification.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
-            alt={toastNotification.username}
-            className="w-9 h-9 rounded-xl object-cover ring-2 ring-pink-500/50 shrink-0"
+          <div className="min-w-0">
+            <h4 className="text-sm sm:text-base font-black text-white truncate flex items-center gap-2">
+              <span>{otherPartner.username}</span>
+            </h4>
+            <p className="text-[11px] font-mono truncate">
+              {isPartnerTyping ? (
+                <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
+              ) : otherPartner.is_online ? (
+                <span className="text-emerald-400 font-medium">Online</span>
+              ) : (
+                <span className="text-slate-400">{formatLastSeen(otherPartner.last_seen)}</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <button
+            onClick={() => setSearchOpen(!searchOpen)}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-transform active:scale-95"
+            title="Search inside Chat"
+          >
+            <Search className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setAudioCallOpen(true)}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95"
+            title="Start Audio Call"
+          >
+            <Phone className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setVideoCallOpen(true)}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95"
+            title="Start HD Video Call"
+          >
+            <Video className="w-4 h-4" />
+          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-52 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 animate-in fade-in space-y-1">
+                <button
+                  onClick={() => { handleOpenMediaGallery(); setMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                >
+                  <FolderOpen className="w-4 h-4 text-cyan-400" />
+                  <span>Media, Links & Docs</span>
+                </button>
+
+                <button
+                  onClick={() => { handleOpenStarred(); setMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                >
+                  <Star className="w-4 h-4 text-yellow-400" />
+                  <span>Starred Messages</span>
+                </button>
+
+                <button
+                  onClick={() => { setThemePickerOpen(true); setMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                >
+                  <Palette className="w-4 h-4 text-emerald-400" />
+                  <span>Chat Theme</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomData?.code || '');
+                    alert(`Room Code ${roomData?.code} copied!`);
+                    setMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                >
+                  <Copy className="w-4 h-4 text-emerald-400" />
+                  <span>Copy Duo Code</span>
+                </button>
+
+                <div className="h-px bg-slate-800 my-1" />
+
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    handleUnpair();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-red-400 hover:bg-red-950/40 flex items-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Disconnect / Unpair</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Inline Search Bar */}
+      {searchOpen && (
+        <div className="p-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-2 animate-in slide-in-from-top-2">
+          <Search className="w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search messages by text or sender..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
           />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between">
-              <h5 className="text-xs font-black text-white truncate">{toastNotification.username}</h5>
-              <span className="text-[9px] text-pink-400 font-bold">New Message</span>
-            </div>
-            <p className="text-[11px] text-slate-300 truncate mt-0.5">{toastNotification.text}</p>
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="p-1 text-slate-400 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button onClick={() => { setSearchOpen(false); setSearchQuery(''); }} className="text-xs text-emerald-400 font-bold px-1">
+            Done
+          </button>
+        </div>
+      )}
+
+      {/* Pinned Messages Top Banner */}
+      {pinnedList.length > 0 && (
+        <div className="px-4 py-2 bg-emerald-950/80 border-b border-emerald-500/30 flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <Pin className="w-3.5 h-3.5 text-emerald-400 shrink-0 fill-current" />
+            <span className="text-emerald-300 font-bold text-[10px] shrink-0">PINNED:</span>
+            <p className="text-slate-200 truncate text-[11px]">{pinnedList[0].text}</p>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 1. CONTACTS / FRIENDS LIST (WhatsApp Left Sidebar)                        */}
-      {/* On mobile: visible when mobileScreen === 'contacts'                       */}
-      {/* On desktop (md:): always visible as 320px left column                     */}
+      {/* 2. CHAT MESSAGE STREAM                                                    */}
       {/* ========================================================================= */}
-      <div
-        className={`${
-          mobileScreen === 'contacts' ? 'flex' : 'hidden'
-        } md:flex w-full md:w-80 border-r border-slate-800 bg-slate-950/90 flex-col shrink-0 h-full overflow-hidden`}
-      >
-        {/* User Header + Invite CTA */}
-        <div className="p-3 sm:p-3.5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="relative shrink-0">
-              <img
-                src={user?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=duocore'}
-                alt={user?.username}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover ring-1 ring-pink-500/50"
-              />
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-slate-950" />
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
+        {displayedMessages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 space-y-2 select-none">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl text-emerald-400">
+              💬
             </div>
-            <div className="min-w-0">
-              <h4 className="text-xs font-black text-white truncate">{user?.username}</h4>
-              <p className="text-[10px] text-pink-300 font-mono">Chats & Squad</p>
-            </div>
+            <h4 className="text-sm font-bold text-slate-300">Connected with {otherPartner.username}</h4>
+            <p className="text-xs text-slate-500 max-w-xs">
+              Say hello! Send text messages, voice notes, photos, or start a call.
+            </p>
           </div>
+        ) : (
+          displayedMessages.map((msg, idx) => {
+            const isMe = msg.sender_id === user?.id;
 
-          <button
-            onClick={onOpenInvite}
-            className="px-2.5 py-1.5 rounded-xl bg-pink-600/30 hover:bg-pink-600/50 border border-pink-500/40 text-pink-300 text-[11px] font-bold flex items-center gap-1 transition-all shrink-0"
-            title="Add More Friends to Chat List"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>+ Add</span>
-          </button>
-        </div>
+            let meta = {};
+            try { meta = JSON.parse(msg.metadata || '{}'); } catch {}
 
-        {/* Search Input */}
-        <div className="p-2.5 sm:p-3 border-b border-slate-800/80">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search chats or friends..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-pink-500/40"
-            />
-          </div>
-        </div>
-
-        {/* Chats List (Each Friend listed separately with live typing & unread bubble) */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-          {otherMembers.length > 0 ? (
-            otherMembers
-              .filter((m) => m.username.toLowerCase().includes(searchQuery.toLowerCase()))
-              .map((m) => {
-                const isSelected = selectedFriend?.id === m.id;
-                const mRank = getHackerRank(m.level || 1, m.xp || 0);
-                const unreadCount = unreadCounts[m.id] || 0;
-                const isFriendTyping = typingMap[m.id] || false;
-
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => handleSelectFriend(m)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all relative ${
-                      isSelected
-                        ? 'bg-slate-900/90 border border-pink-500/50 shadow-md shadow-pink-900/10'
-                        : 'hover:bg-slate-900/50 border border-transparent'
-                    }`}
-                  >
-                    <div className="relative shrink-0">
-                      <img
-                        src={m.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
-                        alt={m.username}
-                        className="w-11 h-11 rounded-2xl object-cover ring-1 ring-slate-700 bg-slate-900"
-                      />
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-950" />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <h4 className="text-xs font-black text-white truncate">{m.username}</h4>
-                        <span className="text-[9px] text-slate-500 font-mono shrink-0">Lv.{m.level || 1}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-1 mt-0.5">
-                        {isFriendTyping ? (
-                          <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1 animate-pulse">
-                            <span>typing</span>
-                            <span className="animate-bounce">.</span>
-                            <span className="animate-bounce delay-100">.</span>
-                            <span className="animate-bounce delay-200">.</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 truncate">
-                            <span className={`text-[8px] px-1 rounded font-bold border ${mRank.badgeColor}`}>
-                              {mRank.icon} {mRank.title.split(' ')[0]}
-                            </span>
-                            <p className="text-[10px] text-slate-400 truncate">
-                              {m.current_topic ? m.current_topic.split(':')[0] : 'Online'}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Green Unread Count Bubble Badge */}
-                        {unreadCount > 0 && (
-                          <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 font-black text-[10px] flex items-center justify-center shadow-md shadow-emerald-500/40 shrink-0 animate-bounce">
-                            {unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-          ) : (
-            <div className="p-6 text-center text-slate-500 space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 mx-auto flex items-center justify-center text-xl">
-                👥
-              </div>
-              <div>
-                <h5 className="text-xs font-bold text-slate-300">No chats yet</h5>
-                <p className="text-[11px] text-slate-500 mt-1">Invite your friends to chat with them individually!</p>
-              </div>
-              <button
-                onClick={onOpenInvite}
-                className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs shadow-md shadow-pink-600/30"
+            return (
+              <div
+                key={msg.id || idx}
+                className={`flex items-end gap-2 group ${isMe ? 'justify-end' : 'justify-start'}`}
               >
-                + Invite Friends 🚀
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* 2. ACTIVE 1v1 DIRECT CHAT CONVERSATION                                    */}
-      {/* On mobile: visible when mobileScreen === 'conversation'                   */}
-      {/* On desktop (md:): always visible in remaining width                       */}
-      {/* ========================================================================= */}
-      <div
-        className={`${
-          mobileScreen === 'conversation' ? 'flex' : 'hidden'
-        } md:flex flex-1 flex-col h-full overflow-hidden bg-slate-950`}
-      >
-        {selectedFriend ? (
-          <>
-            {/* 1v1 Active Chat Header with Mobile Back Button */}
-            <div className="p-2.5 sm:p-3.5 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                {/* Mobile Back Button to Contacts List */}
-                <button
-                  onClick={handleBackToContacts}
-                  className="md:hidden p-1.5 -ml-1 rounded-xl text-pink-400 hover:bg-slate-900 hover:text-white flex items-center gap-0.5 text-xs font-bold shrink-0"
-                  title="Back to All Chats"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                  <span className="text-[11px]">Chats</span>
-                </button>
-
-                <div className="relative shrink-0">
+                {!isMe && (
                   <img
-                    src={selectedFriend.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
-                    alt={selectedFriend.username}
-                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl object-cover ring-2 ring-indigo-500/50"
+                    src={partnerAvatar}
+                    alt={msg.username}
+                    className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1"
                   />
-                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 border-2 border-slate-950" />
-                </div>
+                )}
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-xs sm:text-sm font-black text-white truncate">{selectedFriend.username}</h3>
-                    {selectedRank && (
-                      <span className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded font-bold border ${selectedRank.badgeColor} hidden sm:inline-block`}>
-                        {selectedRank.icon} {selectedRank.title}
+                <div
+                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
+                    isMe
+                      ? `${currentThemeObj.bubbleMe} text-white rounded-br-none`
+                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none`
+                  }`}
+                >
+                  {/* Reply Quote Preview */}
+                  {msg.replyTo && (
+                    <div className="p-2 rounded-xl bg-black/20 border-l-2 border-emerald-300 text-xs text-slate-200 mb-1">
+                      <span className="font-bold text-[10px] block opacity-80">{msg.replyTo.username}</span>
+                      <p className="truncate text-[11px]">{msg.replyTo.text}</p>
+                    </div>
+                  )}
+
+                  {/* 🎵 SHARED MUSIC CARD (Music ↔ Duo Integration) */}
+                  {meta?.song && (
+                    <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={meta.song.thumbnail}
+                          alt={meta.song.title}
+                          className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                            SOUNDWAVE TRACK
+                          </span>
+                          <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
+                          <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          playTrack(meta.song);
+                          openNowPlaying();
+                        }}
+                        className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>Play on SoundWave</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Photo / Image */}
+                  {msg.fileUrl && msg.fileType?.startsWith('image/') && (
+                    <div className="rounded-xl overflow-hidden max-h-72">
+                      <img
+                        src={msg.fileUrl}
+                        alt="Photo"
+                        className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                        onClick={() => window.open(msg.fileUrl, '_blank')}
+                      />
+                    </div>
+                  )}
+
+                  {/* Voice Note Player */}
+                  {msg.fileUrl && msg.fileType?.startsWith('audio/') && (
+                    <AudioMemoPlayer fileUrl={msg.fileUrl} />
+                  )}
+
+                  {/* Message Text */}
+                  {msg.text && !meta?.song && (
+                    <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
+                      {msg.text.startsWith('📍 Shared Live Location:') ? (
+                        <a
+                          href={msg.text.replace('📍 Shared Live Location: ', '')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline text-cyan-300 font-bold flex items-center gap-1"
+                        >
+                          <MapPin className="w-4 h-4" />
+                          <span>View Live Google Maps Location</span>
+                        </a>
+                      ) : (
+                        msg.text
+                      )}
+                    </p>
+                  )}
+
+                  {/* Timestamp & WhatsApp Blue Ticks & Star indicator */}
+                  <div className="flex items-center justify-end gap-1 text-[10px] opacity-75 font-mono pt-0.5">
+                    {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
+                    <span>
+                      {msg.created_at
+                        ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : ''}
+                    </span>
+                    {isMe && (
+                      <span title={msg.status === 'read' ? 'Read' : 'Delivered'}>
+                        {msg.status === 'read' ? (
+                          <CheckCheck className="w-3.5 h-3.5 text-cyan-200 stroke-[2.5]" />
+                        ) : (
+                          <CheckCheck className="w-3.5 h-3.5 text-white/80" />
+                        )}
                       </span>
                     )}
                   </div>
-                  {isSelectedFriendTyping ? (
-                    <p className="text-[10px] sm:text-[11px] text-emerald-400 font-bold animate-pulse">
-                      typing a message...
-                    </p>
-                  ) : (
-                    <p className="text-[10px] sm:text-[11px] text-cyan-300 font-medium truncate flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      <span className="truncate">{selectedFriend.current_topic || 'Online'}</span>
-                    </p>
+                </div>
+
+                {/* Context Hover Actions (Reply, Star, Pin, Delete) */}
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
+                  <button
+                    onClick={() => setReplyTo(msg)}
+                    className="p-1 text-slate-400 hover:text-white"
+                    title="Reply"
+                  >
+                    <Reply className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    onClick={() => handleToggleStar(msg)}
+                    className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
+                    title="Star message"
+                  >
+                    <Star className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    onClick={() => handleTogglePin(msg)}
+                    className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
+                    title="Pin message"
+                  >
+                    <Pin className="w-3 h-3" />
+                  </button>
+
+                  {isMe && (
+                    <button
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      className="p-1 text-slate-400 hover:text-red-400"
+                      title="Delete message"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   )}
                 </div>
               </div>
-
-              {/* Header Right Actions: Audio Call, Video Call, and Vault Exit */}
-              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                {/* Audio Voice Call Button */}
-                <button
-                  onClick={() => handleStartCall('audio')}
-                  className="p-2 sm:p-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 hover:text-white transition-all shadow-sm"
-                  title="Start Audio Call"
-                >
-                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                </button>
-
-                {/* HD Video Call Button */}
-                <button
-                  onClick={() => handleStartCall('video')}
-                  className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1 sm:gap-1.5 shadow-md shadow-cyan-600/30 transition-all"
-                  title="Start HD Video Call"
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Video Call</span>
-                </button>
-
-                {chatMode === 'vault' ? (
-                  <button
-                    onClick={() => { setChatMode('direct'); playSound('click'); }}
-                    className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-bold flex items-center gap-1 transition-all"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Exit Vault</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={onOpenInvite}
-                    className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all hidden sm:block"
-                    title="Add Friends to Squad"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Chat Content: Vault PIN Screen OR Active Messages Stream */}
-            {chatMode === 'vault' && !isPrivateUnlocked ? (
-              /* PASSKEY PIN LOCK SCREEN FOR VAULT */
-              <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 text-center space-y-4 animate-in fade-in">
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-3xl bg-purple-950/80 border border-purple-500/40 flex items-center justify-center text-2xl sm:text-3xl shadow-xl shadow-purple-900/30">
-                  🔒
-                </div>
-
-                <div className="space-y-1 max-w-sm">
-                  <h3 className="text-sm sm:text-base font-black text-white">Private Vault with {selectedFriend.username}</h3>
-                  <p className="text-xs text-slate-400">
-                    Enter your 4-digit Passkey PIN to unlock private messages, photos, and voice notes.
-                  </p>
-                </div>
-
-                {pinError && (
-                  <div className="p-2 px-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs">
-                    {pinError}
-                  </div>
-                )}
-
-                {!showPinSetting ? (
-                  <form onSubmit={handleUnlockVault} className="w-full max-w-xs space-y-3">
-                    <input
-                      type="password"
-                      maxLength={6}
-                      required
-                      placeholder="Enter PIN (Default: 1234)"
-                      value={enteredPin}
-                      onChange={(e) => setEnteredPin(e.target.value)}
-                      className="w-full glass-input rounded-2xl px-4 py-3 text-center text-sm font-mono tracking-widest text-purple-300 placeholder:text-slate-600"
-                      autoFocus
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={!enteredPin}
-                      className="w-full py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs shadow-lg shadow-purple-600/30 transition-all disabled:opacity-40"
-                    >
-                      Unlock Vault 🔑
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowPinSetting(true)}
-                      className="text-[11px] text-slate-500 hover:text-purple-300 font-semibold"
-                    >
-                      Change Passkey PIN
-                    </button>
-                  </form>
-                ) : (
-                  <form onSubmit={handleSaveCustomPin} className="w-full max-w-xs space-y-3">
-                    <input
-                      type="password"
-                      maxLength={6}
-                      required
-                      placeholder="Set New 4-Digit PIN"
-                      value={customPinInput}
-                      onChange={(e) => setCustomPinInput(e.target.value)}
-                      className="w-full glass-input rounded-2xl px-4 py-2.5 text-center text-sm font-mono tracking-widest text-purple-300"
-                      autoFocus
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="submit"
-                        className="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs"
-                      >
-                        Save PIN
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowPinSetting(false)}
-                        className="py-2.5 px-3 rounded-xl bg-slate-800 text-slate-400 text-xs"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            ) : (
-              <>
-                {/* Message Stream */}
-                <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3 sm:space-y-4">
-                  {messages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-3">
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-xl sm:text-2xl">
-                        💬
-                      </div>
-                      <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-slate-300">
-                          Chatting with {selectedFriend.username}
-                        </h4>
-                        <p className="text-[11px] sm:text-xs text-slate-500 mt-1 max-w-xs">
-                          Send a message, voice note, photo, or PDF to get the conversation started!
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    messages.map((msg) => {
-                      const isMe = msg.sender_id === user?.id;
-                      const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata || '{}') : (msg.metadata || {});
-
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`flex gap-2 sm:gap-3 group animate-in fade-in ${
-                            isMe ? 'flex-row-reverse' : 'flex-row'
-                          }`}
-                        >
-                          <img
-                            src={msg.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
-                            alt={msg.username}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-cover ring-1 ring-slate-800 shrink-0 self-end mb-1"
-                          />
-
-                          <div className={`max-w-[85%] sm:max-w-[75%] space-y-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                            <div className="flex items-center gap-1.5 px-1">
-                              <span className="text-[9px] sm:text-[10px] font-bold text-slate-400">{msg.username}</span>
-                              <span className="text-[8px] sm:text-[9px] text-slate-600 font-mono">
-                                {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                              </span>
-                            </div>
-
-                            <div
-                              className={`p-3 sm:p-3.5 rounded-2xl text-xs leading-relaxed break-words relative shadow-md ${
-                                isMe
-                                  ? chatMode === 'vault'
-                                    ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 text-white rounded-br-none shadow-purple-900/20'
-                                    : 'bg-gradient-to-tr from-pink-600 to-indigo-600 text-white rounded-br-none shadow-pink-900/20'
-                                  : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
-                              }`}
-                            >
-                              {msg.reply_to_id && (
-                                <div className="mb-2 p-2 rounded-lg bg-black/20 text-[10px] text-slate-300 border-l-2 border-pink-400">
-                                  Replying to previous message...
-                                </div>
-                              )}
-
-                              {msg.text && <p className="whitespace-pre-wrap font-medium">{msg.text}</p>}
-
-                              {/* Media Renderers */}
-                              {(meta.fileUrl && (meta.mimeType?.startsWith('audio/') || msg.type === 'audio' || meta.fileName?.includes('voice-note'))) && (
-                                <div className="mt-1">
-                                  <AudioMemoPlayer fileUrl={meta.fileUrl} duration={meta.duration} />
-                                </div>
-                              )}
-
-                              {meta.fileUrl && (meta.mimeType?.startsWith('image/') || msg.type === 'image') && (
-                                <div className="mt-1 rounded-xl overflow-hidden border border-white/20 relative group/img cursor-pointer">
-                                  <img
-                                    src={meta.fileUrl}
-                                    alt={meta.fileName || 'Shared Photo'}
-                                    onClick={() => setLightboxImage(meta.fileUrl)}
-                                    className="max-h-60 sm:max-h-72 w-auto object-cover rounded-xl hover:opacity-90 transition-opacity"
-                                  />
-                                  <a
-                                    href={meta.fileUrl}
-                                    download={meta.fileName || 'photo'}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/70 hover:bg-black text-white text-[10px] flex items-center gap-1"
-                                  >
-                                    <Download className="w-3 h-3" />
-                                    <span>Download</span>
-                                  </a>
-                                </div>
-                              )}
-
-                              {meta.fileUrl && (meta.mimeType?.startsWith('video/') || msg.type === 'video') && (
-                                <div className="mt-1 rounded-xl overflow-hidden border border-white/20 bg-black/40 p-1">
-                                  <video src={meta.fileUrl} controls className="max-h-52 sm:max-h-64 w-full rounded-lg" />
-                                </div>
-                              )}
-
-                              {meta.fileUrl && (meta.mimeType === 'application/pdf' || msg.type === 'file' || meta.fileName?.endsWith('.pdf')) && (
-                                <div className="mt-1 p-2.5 sm:p-3 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 font-bold text-xs shrink-0">
-                                      📄
-                                    </div>
-                                    <div className="min-w-0">
-                                      <h5 className="font-bold text-[11px] text-white truncate">{meta.fileName || 'Document.pdf'}</h5>
-                                      <span className="text-[9px] text-slate-400 block">
-                                        {meta.fileSize ? `${Math.round(meta.fileSize / 1024)} KB` : 'PDF'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <a
-                                    href={meta.fileUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    download={meta.fileName || 'document.pdf'}
-                                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] flex items-center gap-1 shrink-0"
-                                  >
-                                    <Download className="w-3 h-3" />
-                                    <span>Open</span>
-                                  </a>
-                                </div>
-                              )}
-
-                              {meta.latitude && meta.longitude && (
-                                <div className="mt-1 p-2.5 rounded-xl bg-slate-950/80 border border-cyan-500/30 space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="flex items-center gap-1 text-[11px] font-bold text-cyan-300">
-                                      <MapPin className="w-3.5 h-3.5 text-pink-400 animate-bounce" />
-                                      <span className="truncate">{meta.address || 'Shared Location'}</span>
-                                    </span>
-                                  </div>
-                                  <a
-                                    href={`https://www.google.com/maps?q=${meta.latitude},${meta.longitude}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="w-full py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[10px] flex items-center justify-center gap-1 transition-all shadow-sm"
-                                  >
-                                    <ExternalLink className="w-3 h-3" />
-                                    <span>Open Google Maps</span>
-                                  </a>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Hover reactions */}
-                            <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity px-1 ${
-                              isMe ? 'justify-end' : 'justify-start'
-                            }`}>
-                              {QUICK_EMOJIS.slice(0, 3).map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  onClick={() => { reactToMessage(msg.id, emoji); playSound('click'); }}
-                                  className="p-1 rounded hover:bg-slate-800 text-xs transition-transform hover:scale-125"
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                              <button
-                                onClick={() => setReplyTo(msg)}
-                                className="p-1 rounded hover:bg-slate-800 text-slate-500 hover:text-slate-300 text-xs"
-                              >
-                                <Reply className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* Upload Progress */}
-                {uploading && (
-                  <div className="px-3 py-1.5 bg-indigo-950/80 border-t border-indigo-500/40 text-[11px] text-cyan-300 flex items-center gap-2 animate-pulse">
-                    <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                    <span>{uploadProgress || 'Processing media...'}</span>
-                  </div>
-                )}
-
-                {/* Attachment Menu Popup (With Vault placed last next to location) */}
-                {attachmentMenuOpen && (
-                  <div className="p-2.5 mx-2 sm:mx-4 mb-2 rounded-2xl bg-slate-900/95 border border-pink-500/40 shadow-2xl grid grid-cols-5 gap-1.5 sm:gap-2 animate-in slide-in-from-bottom-2 duration-150">
-                    <button
-                      type="button"
-                      onClick={() => triggerFileUpload('image/*', 'image')}
-                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-pink-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
-                    >
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-pink-500/20 text-pink-400 flex items-center justify-center">
-                        <ImageIcon className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold">Photo</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => triggerFileUpload('application/pdf,.doc,.docx,.txt', 'file')}
-                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-red-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
-                    >
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center">
-                        <FileText className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold">PDF</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => triggerFileUpload('video/*', 'video')}
-                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
-                    >
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
-                        <VideoIcon className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold">Video</span>
-                    </button>
-
-                    {/* Location */}
-                    <button
-                      type="button"
-                      onClick={handleShareLiveLocation}
-                      className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 flex flex-col items-center gap-1 text-xs text-slate-200 transition-all hover:scale-105"
-                    >
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
-                        <MapPin className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold">Location</span>
-                    </button>
-
-                    {/* Private Vault (Placed next to location as requested) */}
-                    <button
-                      type="button"
-                      onClick={handleOpenVaultFromMenu}
-                      className="p-1.5 sm:p-2 rounded-xl bg-purple-950/60 border border-purple-800/60 hover:border-purple-500 flex flex-col items-center gap-1 text-xs text-purple-300 transition-all hover:scale-105"
-                      title="Open Private Vault"
-                    >
-                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-purple-500/30 text-pink-300 flex items-center justify-center shadow-sm">
-                        <Lock className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold">Vault</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Voice Recording Active Bar */}
-                {isRecordingVoice ? (
-                  <div className="p-2.5 sm:p-4 border-t border-red-500/40 bg-slate-950 flex items-center justify-between gap-2 animate-pulse">
-                    <div className="flex items-center gap-2 text-red-400 text-xs font-bold font-mono">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                      <span>{Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={cancelVoiceRecording}
-                        className="px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={stopAndSendVoiceRecording}
-                        className="px-3 py-1 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-md shadow-pink-600/30"
-                      >
-                        Send Memo 🚀
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Input Bar */
-                  <form onSubmit={handleSend} className="p-2 sm:p-3.5 border-t border-slate-800 bg-slate-950">
-                    <div className="flex items-center gap-1.5 sm:gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setAttachmentMenuOpen(!attachmentMenuOpen)}
-                        className={`p-2.5 sm:p-3 rounded-2xl border transition-all ${
-                          attachmentMenuOpen
-                            ? 'bg-pink-600 text-white border-pink-500'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-pink-500/40'
-                        }`}
-                        title="Attach Photo, PDF, Video, Location, or Open Vault"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
-
-                      <input
-                        type="text"
-                        placeholder={`Message ${selectedFriend.username}...`}
-                        value={input}
-                        onChange={handleInputChange}
-                        className="flex-1 glass-input rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 text-xs text-white placeholder:text-slate-500"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={startVoiceRecording}
-                        className="p-2.5 sm:p-3 rounded-2xl bg-slate-900 border border-slate-800 text-pink-400 hover:bg-pink-950/40 hover:border-pink-500/40 transition-all shadow-md"
-                        title="Record Voice Note"
-                      >
-                        <Mic className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={!input.trim()}
-                        className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold transition-all shadow-lg disabled:opacity-40"
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </>
-            )}
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-500 space-y-3">
-            <div className="w-14 h-14 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-2xl">
-              💬
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-slate-300">Select a friend to start chatting</h4>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Pick any friend from your chat list to send messages, voice notes, and media.
-              </p>
-            </div>
-            <button
-              onClick={handleBackToContacts}
-              className="md:hidden px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold"
-            >
-              View Contacts List
-            </button>
-          </div>
+            );
+          })
         )}
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Incoming Call Ringing Modal */}
-      <IncomingCallModal
-        incomingCall={incomingCall}
-        onAccept={handleAcceptIncomingCall}
-        onDecline={handleDeclineIncomingCall}
-      />
+      {/* Reply Preview Bar */}
+      {replyTo && (
+        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <CornerDownRight className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="min-w-0">
+              <span className="font-bold text-emerald-400 text-[10px]">{replyTo.username}</span>
+              <p className="text-slate-300 truncate text-[11px]">{replyTo.text}</p>
+            </div>
+          </div>
+          <button onClick={() => setReplyTo(null)} className="p-1 text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-      {/* Outgoing / Active Video Call Modal */}
-      <VideoCallModal
-        isOpen={videoCallOpen}
-        onClose={() => setVideoCallOpen(false)}
-      />
+      {/* ========================================================================= */}
+      {/* 3. WHATSAPP BOTTOM COMPOSER                                               */}
+      {/* ========================================================================= */}
+      <div className="p-2 sm:p-3 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2 shrink-0">
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          className="hidden"
+          accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+        />
 
-      {/* Lightbox Modal for Photos */}
-      {lightboxImage && (
-        <div
-          onClick={() => setLightboxImage(null)}
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer animate-in fade-in"
+        <button
+          onClick={() => setCameraModalOpen(true)}
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
+          title="Take Photo with Camera"
         >
-          <div className="relative max-w-4xl max-h-[90vh]">
-            <img
-              src={lightboxImage}
-              alt="Enlarged view"
-              className="max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl"
-            />
+          <Camera className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
+          title="Attach Photo / Document"
+        >
+          <Paperclip className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => setLocationConfirmOpen(true)}
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-400 transition-all active:scale-95 shrink-0"
+          title="Share Location"
+        >
+          <MapPin className="w-4 h-4" />
+        </button>
+
+        <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder={isRecording ? `Recording... (${recordingSeconds}s)` : "Type a message..."}
+            disabled={isRecording}
+            value={messageText}
+            onChange={handleTextChange}
+            className="w-full glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none border border-slate-800 focus:border-emerald-500/50"
+          />
+
+          {messageText.trim() ? (
             <button
-              onClick={() => setLightboxImage(null)}
-              className="absolute -top-4 -right-4 p-2 rounded-full bg-slate-900 text-white border border-slate-700 hover:bg-red-600"
+              type="submit"
+              className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/30 transition-transform active:scale-95 shrink-0"
             >
-              <X className="w-5 h-5" />
+              <Send className="w-4 h-4" />
+              <span className="hidden sm:inline">Send</span>
             </button>
+          ) : (
+            <button
+              type="button"
+              onMouseDown={startRecording}
+              onMouseUp={stopRecording}
+              onTouchStart={startRecording}
+              onTouchEnd={stopRecording}
+              className={`p-2.5 rounded-2xl font-bold transition-all shrink-0 active:scale-95 ${
+                isRecording
+                  ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/50'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400'
+              }`}
+              title="Hold to Record Voice Note"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+          )}
+        </form>
+      </div>
+
+      {/* Location Sharing Confirmation Modal */}
+      {locationConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-xs glass-panel p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto text-xl">
+              📍
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white">Share Live Location?</h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Your current GPS coordinates will be sent as a secure Google Maps link to your partner.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLocationConfirmOpen(false)}
+                className="flex-1 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeSendLocation}
+                className="flex-1 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs"
+              >
+                Share Now
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Chat Theme Picker Modal */}
+      {themePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-xs glass-panel p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Palette className="w-4 h-4 text-emerald-400" />
+                <span>Chat Themes</span>
+              </h4>
+              <button onClick={() => setThemePickerOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {CHAT_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setChatTheme(t.id);
+                    localStorage.setItem('soundwave_chat_theme', t.id);
+                    setThemePickerOpen(false);
+                  }}
+                  className={`w-full p-2.5 rounded-xl text-left text-xs font-bold border transition-all flex items-center justify-between ${
+                    chatTheme === t.id
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850'
+                  }`}
+                >
+                  <span>{t.name}</span>
+                  {chatTheme === t.id && <Check className="w-3.5 h-3.5" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Media Gallery Drawer */}
+      {mediaGalleryOpen && mediaData && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/80 p-0">
+          <div className="w-full max-w-md bg-slate-950 border-l border-slate-800 h-full p-5 flex flex-col space-y-4 overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-cyan-400" />
+                <span>Media, Links & Docs</span>
+              </h3>
+              <button onClick={() => setMediaGalleryOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 flex-1">
+              <div>
+                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">PHOTOS & IMAGES ({mediaData.photos.length})</span>
+                {mediaData.photos.length === 0 ? (
+                  <p className="text-xs text-slate-600">No photos shared yet.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {mediaData.photos.map((p) => (
+                      <img
+                        key={p.id}
+                        src={p.url}
+                        alt="Photo"
+                        className="aspect-square object-cover rounded-xl cursor-pointer hover:scale-105 transition-transform"
+                        onClick={() => window.open(p.url, '_blank')}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">DOCUMENTS ({mediaData.documents.length})</span>
+                {mediaData.documents.map((d) => (
+                  <a
+                    key={d.id}
+                    href={d.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs text-slate-300 hover:text-white mb-2"
+                  >
+                    <span className="truncate">{d.fileName}</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Starred Messages Modal */}
+      {starredOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md glass-panel p-5 rounded-3xl bg-slate-950 border border-slate-800 space-y-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                <span>Starred Messages ({starredList.length})</span>
+              </h4>
+              <button onClick={() => setStarredOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {starredList.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-6">No starred messages yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {starredList.map((m) => (
+                  <div key={m.id} className="p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="font-bold text-emerald-400">{m.username}</span>
+                      <span>{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <p className="text-xs text-white">{m.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modals for Calling & Camera */}
+      {videoCallOpen && (
+        <VideoCallModal
+          isOpen={videoCallOpen}
+          onClose={() => setVideoCallOpen(false)}
+          partnerId={otherPartner.id}
+          partnerName={otherPartner.username}
+        />
+      )}
+
+      {audioCallOpen && (
+        <AudioCallModal
+          isOpen={audioCallOpen}
+          onClose={() => setAudioCallOpen(false)}
+          partnerId={otherPartner.id}
+          partnerName={otherPartner.username}
+        />
+      )}
+
+      {incomingCall && (
+        <IncomingCallModal
+          callData={incomingCall}
+          onAccept={() => {
+            if (incomingCall.type === 'video') setVideoCallOpen(true);
+            else setAudioCallOpen(true);
+            setIncomingCall(null);
+          }}
+          onReject={() => setIncomingCall(null)}
+        />
+      )}
+
+      {cameraModalOpen && (
+        <CameraCaptureModal
+          isOpen={cameraModalOpen}
+          onClose={() => setCameraModalOpen(false)}
+          onCapture={async (blob) => {
+            const formData = new FormData();
+            formData.append('file', blob, 'camera_capture.jpg');
+            try {
+              const res = await api.uploadFile(formData);
+              sendMessage({
+                text: '📷 Live Camera Photo',
+                channel: 'normal',
+                fileUrl: res.fileUrl,
+                fileType: 'image/jpeg'
+              });
+              playSound('send');
+            } catch (err) {
+              alert('Failed to send photo.');
+            }
+            setCameraModalOpen(false);
+          }}
+        />
       )}
     </div>
   );

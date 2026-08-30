@@ -1,0 +1,9 @@
+{
+  "appId": "com.soundwave.app",
+  "appName": "SoundWave",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

@@ -41,6 +41,70 @@ export default {
   login: (body) => apiRequest('/auth/login', { method: 'POST', body }),
   getMe: () => apiRequest('/auth/me'),
   updateProfile: (body) => apiRequest('/auth/profile', { method: 'PATCH', body }),
+  changePassword: (body) => apiRequest('/auth/change-password', { method: 'POST', body }),
+
+  // Music & Songs API (A to Z YouTube/Spotify Music Streaming, Lyrics, Downloads)
+  searchMusic: (q) => apiRequest(`/music/search?q=${encodeURIComponent(q)}`),
+  searchMusicAdvanced: ({ q = '', language = '', year = '', category = '' }) =>
+    apiRequest(`/music/search?q=${encodeURIComponent(q)}&language=${encodeURIComponent(language)}&year=${encodeURIComponent(year)}&category=${encodeURIComponent(category)}`),
+  getSearchSuggestions: (q) => apiRequest(`/music/suggestions?q=${encodeURIComponent(q)}`),
+  getTrendingMusic: () => apiRequest('/music/trending'),
+  getMusicStream: (videoId) => apiRequest(`/music/stream/${videoId}`),
+  getMusicLyrics: (track, artist) => apiRequest(`/music/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist || '')}`),
+  getMusicDownloadUrl: (videoId, title) => `/api/music/download/${videoId}?title=${encodeURIComponent(title || 'song')}`,
+
+  // Favorites (Database Persisted)
+  getFavorites: () => apiRequest('/music/favorites'),
+  addFavorite: (track) => apiRequest('/music/favorites', {
+    method: 'POST',
+    body: {
+      trackId: track.id,
+      title: track.title,
+      artist: track.artist,
+      thumbnail: track.thumbnail,
+      duration: track.duration,
+      album: track.album
+    }
+  }),
+  removeFavorite: (trackId) => apiRequest(`/music/favorites/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
+
+  // Custom Playlists (Database Persisted)
+  getPlaylists: () => apiRequest('/music/playlists'),
+  createPlaylist: (body) => apiRequest('/music/playlists', { method: 'POST', body }),
+  getPlaylist: (id) => apiRequest(`/music/playlists/${id}`),
+  updatePlaylist: (id, body) => apiRequest(`/music/playlists/${id}`, { method: 'PUT', body }),
+  deletePlaylist: (id) => apiRequest(`/music/playlists/${id}`, { method: 'DELETE' }),
+  addSongToPlaylist: (playlistId, track) => apiRequest(`/music/playlists/${playlistId}/songs`, {
+    method: 'POST',
+    body: {
+      trackId: track.id,
+      title: track.title,
+      artist: track.artist,
+      thumbnail: track.thumbnail,
+      duration: track.duration,
+      album: track.album
+    }
+  }),
+  removeSongFromPlaylist: (playlistId, trackId) => apiRequest(`/music/playlists/${playlistId}/songs/${encodeURIComponent(trackId)}`, { method: 'DELETE' }),
+
+  // Listening History & Statistics
+  recordHistory: (track, playDurationSeconds = 0) => apiRequest('/music/history', {
+    method: 'POST',
+    body: {
+      trackId: track.id,
+      title: track.title,
+      artist: track.artist,
+      thumbnail: track.thumbnail,
+      duration: track.duration,
+      album: track.album,
+      playDurationSeconds
+    }
+  }),
+  getHistory: (limit = 50) => apiRequest(`/music/history?limit=${limit}`),
+  deleteHistoryItem: (id) => apiRequest(`/music/history/${id}`, { method: 'DELETE' }),
+  clearHistory: () => apiRequest('/music/history', { method: 'DELETE' }),
+  getStats: () => apiRequest('/music/stats'),
+  getRecommendations: () => apiRequest('/music/recommendations'),
 
   // Duo Partnership & Invites (Persistent 1-Time Connect)
   getCurrentPartner: () => apiRequest('/partners/current'),
@@ -49,12 +113,29 @@ export default {
   validateInvite: (code) => apiRequest(`/invites/code/${encodeURIComponent(code)}`),
   acceptInvite: (code) => apiRequest('/invites/accept', { method: 'POST', body: { code } }),
   cancelInvite: () => apiRequest('/invites/cancel', { method: 'POST' }),
+  leaveRoom: (roomId) => apiRequest('/partners/remove', { method: 'POST' }),
 
   // Rooms & Messages (Normal + Private Channels + Uploads)
   getRoomMessages: (roomId, channel = 'normal') => apiRequest(`/rooms/${roomId}/messages?channel=${channel}`),
   sendRoomMessage: (roomId, body) => apiRequest(`/rooms/${roomId}/messages`, { method: 'POST', body }),
   uploadFile: (roomId, formData) => apiRequest(`/rooms/${roomId}/upload`, { method: 'POST', body: formData }),
   updateRoomStatus: (roomId, body) => apiRequest(`/rooms/${roomId}/status`, { method: 'PATCH', body }),
+  markMessagesRead: (roomId, body) => apiRequest(`/rooms/${roomId}/messages/read`, { method: 'POST', body }),
+  deleteMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}`, { method: 'DELETE' }),
+
+  // Starred & Pinned Messages
+  starMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}/star`, { method: 'POST' }),
+  unstarMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}/star`, { method: 'DELETE' }),
+  getStarredMessages: (roomId) => apiRequest(`/rooms/${roomId}/starred`),
+  pinMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}/pin`, { method: 'POST' }),
+  unpinMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}/pin`, { method: 'DELETE' }),
+  getPinnedMessages: (roomId) => apiRequest(`/rooms/${roomId}/pinned`),
+
+  // Chat Search, Media Gallery, and Call Logging
+  searchChat: (roomId, q) => apiRequest(`/rooms/${roomId}/search?q=${encodeURIComponent(q)}`),
+  getMediaGallery: (roomId) => apiRequest(`/rooms/${roomId}/media`),
+  logCall: (roomId, body) => apiRequest(`/rooms/${roomId}/calls`, { method: 'POST', body }),
+  getCallHistory: (roomId) => apiRequest(`/rooms/${roomId}/calls`),
 
   // Cyber & Linux Labs
   getCyberProgress: () => apiRequest('/cyber/progress'),

@@ -23,6 +23,7 @@ const linuxRoutes = require('./routes/linux');
 const quizzesRoutes = require('./routes/quizzes');
 const revisionRoutes = require('./routes/revision');
 const communityRoutes = require('./routes/community');
+const musicRoutes = require('./routes/music');
 
 // Initialize database schema and seeds
 initDb();
@@ -95,9 +96,25 @@ app.use('/api/linux', linuxRoutes);
 app.use('/api/quizzes', quizzesRoutes);
 app.use('/api/revision', revisionRoutes);
 app.use('/api/community', communityRoutes);
+app.use('/api/music', musicRoutes);
 
 // Socket.IO Handlers
 initSockets(io);
+
+// Serve built frontend assets in production
+const frontendDist = path.join(__dirname, '../../frontend/dist');
+const altFrontendDist = path.join(__dirname, '../../../frontend/dist');
+const activeDist = fs.existsSync(frontendDist) ? frontendDist : (fs.existsSync(altFrontendDist) ? altFrontendDist : null);
+
+if (activeDist) {
+  app.use(express.static(activeDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(path.join(activeDist, 'index.html'));
+  });
+}
 
 // Centralized error handler
 app.use(errorHandler);

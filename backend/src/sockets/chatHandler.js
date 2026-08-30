@@ -49,6 +49,7 @@ function setupChatHandler(io, socket) {
       metadata: metadata || {},
       reply_to_id: replyToId || null,
       is_read: 0,
+      is_deleted: 0,
       created_at: now,
       reactions: {}
     };
@@ -71,6 +72,84 @@ function setupChatHandler(io, socket) {
     }
 
     awardXP(socket.user.id, 5, 'Chat message');
+  });
+
+  // Mark Messages as Read (Double Blue Ticks)
+  socket.on('chat:mark_read', ({ roomId, channel = 'normal', senderId }) => {
+    if (!roomId) return;
+    if (!isRoomMember(roomId, socket.user.id)) return;
+
+    const now = new Date().toISOString();
+
+    try {
+      if (senderId) {
+        db.prepare(`
+          UPDATE messages
+          SET is_read = 1
+          WHERE room_id = ? AND channel_type = ? AND sender_id = ? AND is_read = 0
+        `).run(roomId, channel, senderId);
+      } else {
+        db.prepare(`
+          UPDATE messages
+          SET is_read = 1
+          WHERE room_id = ? AND channel_type = ? AND sender_id != ? AND is_read = 0
+        `).run(roomId, channel, socket.user.id);
+      }
+    } catch (err) {}
+
+    const payload = {
+      roomId,
+      channel,
+      readBy: socket.user.id,
+      readAt: now
+    };
+
+    io.to(roomId).emit('chat:messages_read', payload);
+
+    if (senderId) {
+      io.to(`user:${senderId}`).emit('chat:messages_read', payload);
+    }
+  });
+
+  // Delete Message (Delete for Everyone)
+  socket.on('chat:delete_message', ({ roomId, messageId, channel }) => {
+    if (!roomId || !messageId) return;
+    if (!isRoomMember(roomId, socket.user.id)) return;
+
+    try {
+      const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+      if (!msg) return;
+
+      if (msg.sender_id !== socket.user.id) {
+        const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId);
+        if (room?.created_by !== socket.user.id) return;
+      }
+
+      db.prepare(`
+        UPDATE messages
+        SET is_deleted = 1, text = '🚫 This message was deleted', metadata = '{}'
+        WHERE id = ?
+      `).run(messageId);
+
+      const payload = {
+        messageId,
+        roomId,
+        channel: channel || msg.channel_type,
+        deletedBy: socket.user.id
+      };
+
+      io.to(roomId).emit('chat:message_deleted', payload);
+
+      if (channel && (channel.startsWith('dm:') || channel.startsWith('private:'))) {
+        const parts = channel.split(':');
+        const otherId = parts.find(id => id !== 'dm' && id !== 'private' && id !== socket.user.id);
+        if (otherId) {
+          io.to(`user:${otherId}`).emit('chat:message_deleted', payload);
+        }
+      }
+    } catch (err) {
+      console.error('[ChatHandler] Error deleting message:', err);
+    }
   });
 
   // Typing Indicator with instant dispatch

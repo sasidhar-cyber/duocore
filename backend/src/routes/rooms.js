@@ -71,7 +71,6 @@ router.get('/:roomId/messages', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Access denied. You are not a member of this room.' });
   }
 
-  // If DM channel, ensure caller is one of the participants
   if (channel.startsWith('dm:') || channel.startsWith('private:')) {
     const parts = channel.split(':');
     if (!parts.includes(userId)) {
@@ -80,24 +79,26 @@ router.get('/:roomId/messages', requireAuth, (req, res) => {
   }
 
   const messages = db.prepare(`
-    SELECT m.*, u.username, u.avatar_url
+    SELECT m.*, u.username, u.avatar_url,
+           (SELECT COUNT(*) FROM starred_messages sm WHERE sm.message_id = m.id AND sm.user_id = ?) as is_starred,
+           (SELECT COUNT(*) FROM pinned_messages pm WHERE pm.message_id = m.id AND pm.room_id = m.room_id) as is_pinned
     FROM messages m
     LEFT JOIN users u ON m.sender_id = u.id
     WHERE m.room_id = ? AND IFNULL(m.channel_type, 'normal') = ?
     ORDER BY m.created_at ASC
     LIMIT 400
-  `).all(roomId, channel);
+  `).all(userId, roomId, channel);
 
   res.json({ messages, channel });
 });
 
-// Post Message to 1v1 or Vault Channel
+// Post Message to 1v1 or Vault Channel (Supports Text, Media, Location, Music Cards)
 router.post('/:roomId/messages', requireAuth, (req, res) => {
   const { roomId } = req.params;
   const { text, type = 'text', channel = 'normal', replyToId, metadata = {} } = req.body;
   const userId = req.user.id;
 
-  if (!text && !metadata?.fileUrl && !metadata?.latitude) {
+  if (!text && !metadata?.fileUrl && !metadata?.latitude && !metadata?.song) {
     return res.status(400).json({ error: 'Message content or attachment is required.' });
   }
 
@@ -146,39 +147,337 @@ router.post('/:roomId/messages', requireAuth, (req, res) => {
   res.status(201).json({ message: 'Message sent', data: savedMsg });
 });
 
-// Update Study Status in Room
-router.patch('/:roomId/status', requireAuth, (req, res) => {
+// Mark Room Messages as Read
+router.post('/:roomId/messages/read', requireAuth, (req, res) => {
   const { roomId } = req.params;
-  const { subject, topic, is_studying } = req.body;
+  const { channel = 'normal', senderId } = req.body;
   const userId = req.user.id;
-  const now = new Date().toISOString();
 
   if (!isUserInActiveRoom(userId, roomId)) {
     return res.status(403).json({ error: 'Access denied.' });
   }
 
-  db.prepare(`
-    UPDATE room_members
-    SET current_subject = COALESCE(?, current_subject),
-        current_topic = COALESCE(?, current_topic),
-        is_studying = COALESCE(?, is_studying),
-        last_seen = ?
-    WHERE room_id = ? AND user_id = ?
-  `).run(subject, topic, is_studying !== undefined ? (is_studying ? 1 : 0) : null, now, roomId, userId);
+  const now = new Date().toISOString();
 
-  // Broadcast presence update
+  if (senderId) {
+    db.prepare(`
+      UPDATE messages
+      SET is_read = 1
+      WHERE room_id = ? AND channel_type = ? AND sender_id = ? AND is_read = 0
+    `).run(roomId, channel, senderId);
+  } else {
+    db.prepare(`
+      UPDATE messages
+      SET is_read = 1
+      WHERE room_id = ? AND channel_type = ? AND sender_id != ? AND is_read = 0
+    `).run(roomId, channel, userId);
+  }
+
   const io = req.app.get('io');
   if (io) {
-    io.to(roomId).emit('presence:partner_status', {
-      userId,
-      current_subject: subject,
-      current_topic: topic,
-      is_studying: is_studying ? 1 : 0,
-      last_seen: now
+    io.to(roomId).emit('chat:messages_read', {
+      roomId,
+      channel,
+      readBy: userId,
+      readAt: now
     });
   }
 
-  res.json({ message: 'Status updated' });
+  res.json({ success: true });
+});
+
+// Delete Message (Delete for Everyone)
+router.delete('/:roomId/messages/:messageId', requireAuth, (req, res) => {
+  const { roomId, messageId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  const msg = db.prepare('SELECT * FROM messages WHERE id = ? AND room_id = ?').get(messageId, roomId);
+  if (!msg) {
+    return res.status(404).json({ error: 'Message not found.' });
+  }
+
+  if (msg.sender_id !== userId) {
+    const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId);
+    if (room?.created_by !== userId) {
+      return res.status(403).json({ error: 'You can only delete your own messages.' });
+    }
+  }
+
+  db.prepare(`
+    UPDATE messages
+    SET is_deleted = 1, text = '🚫 This message was deleted', metadata = '{}'
+    WHERE id = ?
+  `).run(messageId);
+
+  const io = req.app.get('io');
+  if (io) {
+    io.to(roomId).emit('chat:message_deleted', {
+      messageId,
+      roomId,
+      channel: msg.channel_type,
+      deletedBy: userId
+    });
+  }
+
+  res.json({ message: 'Message deleted', messageId });
+});
+
+/* ========================================================================= */
+/* STARRED & PINNED MESSAGES                                                 */
+/* ========================================================================= */
+
+// Star a Message
+router.post('/:roomId/messages/:messageId/star', requireAuth, (req, res) => {
+  const { roomId, messageId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) return res.status(403).json({ error: 'Access denied.' });
+
+  const id = 'star-' + uuidv4().slice(0, 8);
+  const now = new Date().toISOString();
+
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO starred_messages (id, user_id, message_id, room_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, userId, messageId, roomId, now);
+
+    res.json({ success: true, message: 'Message starred' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to star message' });
+  }
+});
+
+// Unstar a Message
+router.delete('/:roomId/messages/:messageId/star', requireAuth, (req, res) => {
+  const { roomId, messageId } = req.params;
+  const userId = req.user.id;
+
+  try {
+    db.prepare('DELETE FROM starred_messages WHERE user_id = ? AND message_id = ?').run(userId, messageId);
+    res.json({ success: true, message: 'Message unstarred' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to unstar message' });
+  }
+});
+
+// Get All Starred Messages
+router.get('/:roomId/starred', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user.id;
+
+  try {
+    const starred = db.prepare(`
+      SELECT sm.id as star_id, sm.created_at as starred_at, m.*, u.username, u.avatar_url
+      FROM starred_messages sm
+      JOIN messages m ON sm.message_id = m.id
+      LEFT JOIN users u ON m.sender_id = u.id
+      WHERE sm.user_id = ? AND sm.room_id = ? AND m.is_deleted = 0
+      ORDER BY sm.created_at DESC
+    `).all(userId, roomId);
+
+    res.json({ starred });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch starred messages', starred: [] });
+  }
+});
+
+// Pin a Message in Room
+router.post('/:roomId/messages/:messageId/pin', requireAuth, (req, res) => {
+  const { roomId, messageId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) return res.status(403).json({ error: 'Access denied.' });
+
+  const id = 'pin-' + uuidv4().slice(0, 8);
+  const now = new Date().toISOString();
+
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO pinned_messages (id, room_id, message_id, pinned_by, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, roomId, messageId, userId, now);
+
+    const msg = db.prepare(`
+      SELECT m.*, u.username, u.avatar_url FROM messages m LEFT JOIN users u ON m.sender_id = u.id WHERE m.id = ?
+    `).get(messageId);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(roomId).emit('chat:message_pinned', { message: msg, pinnedBy: userId });
+    }
+
+    res.json({ success: true, message: 'Message pinned' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to pin message' });
+  }
+});
+
+// Unpin a Message
+router.delete('/:roomId/messages/:messageId/pin', requireAuth, (req, res) => {
+  const { roomId, messageId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) return res.status(403).json({ error: 'Access denied.' });
+
+  try {
+    db.prepare('DELETE FROM pinned_messages WHERE room_id = ? AND message_id = ?').run(roomId, messageId);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(roomId).emit('chat:message_unpinned', { messageId });
+    }
+
+    res.json({ success: true, message: 'Message unpinned' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to unpin message' });
+  }
+});
+
+// Get Pinned Messages
+router.get('/:roomId/pinned', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user.id;
+
+  try {
+    const pinned = db.prepare(`
+      SELECT pm.id as pin_id, pm.created_at as pinned_at, m.*, u.username, u.avatar_url
+      FROM pinned_messages pm
+      JOIN messages m ON pm.message_id = m.id
+      LEFT JOIN users u ON m.sender_id = u.id
+      WHERE pm.room_id = ? AND m.is_deleted = 0
+      ORDER BY pm.created_at DESC
+    `).all(roomId);
+
+    res.json({ pinned });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch pinned messages', pinned: [] });
+  }
+});
+
+/* ========================================================================= */
+/* CHAT SEARCH & MEDIA GALLERY                                               */
+/* ========================================================================= */
+
+// Search inside Chat
+router.get('/:roomId/search', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const query = String(req.query.q || '').trim();
+  const userId = req.user.id;
+
+  if (!query) return res.json({ results: [] });
+  if (!isUserInActiveRoom(userId, roomId)) return res.status(403).json({ error: 'Access denied.' });
+
+  try {
+    const results = db.prepare(`
+      SELECT m.*, u.username, u.avatar_url
+      FROM messages m
+      JOIN users u ON m.sender_id = u.id
+      WHERE m.room_id = ? AND m.is_deleted = 0 AND (m.text LIKE ? OR u.username LIKE ?)
+      ORDER BY m.created_at DESC
+      LIMIT 50
+    `).all(roomId, `%${query}%`, `%${query}%`);
+
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed', results: [] });
+  }
+});
+
+// Media Gallery
+router.get('/:roomId/media', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) return res.status(403).json({ error: 'Access denied.' });
+
+  try {
+    const rawMessages = db.prepare(`
+      SELECT m.*, u.username
+      FROM messages m
+      JOIN users u ON m.sender_id = u.id
+      WHERE m.room_id = ? AND m.is_deleted = 0 AND (m.metadata LIKE '%fileUrl%' OR m.text LIKE '%http%')
+      ORDER BY m.created_at DESC
+      LIMIT 200
+    `).all(roomId);
+
+    const photos = [];
+    const videos = [];
+    const audio = [];
+    const documents = [];
+    const links = [];
+
+    for (const msg of rawMessages) {
+      let meta = {};
+      try { meta = JSON.parse(msg.metadata || '{}'); } catch {}
+
+      if (meta.fileUrl) {
+        const item = { id: msg.id, url: meta.fileUrl, fileName: meta.fileName || 'Attachment', date: msg.created_at, sender: msg.username };
+        if (meta.fileType?.startsWith('image/') || msg.type === 'image') photos.push(item);
+        else if (meta.fileType?.startsWith('video/') || msg.type === 'video') videos.push(item);
+        else if (meta.fileType?.startsWith('audio/') || msg.type === 'audio') audio.push(item);
+        else documents.push(item);
+      } else if (msg.text?.includes('http')) {
+        const urls = msg.text.match(/https?:\/\/[^\s]+/g) || [];
+        urls.forEach(u => links.push({ id: msg.id, url: u, text: msg.text, date: msg.created_at, sender: msg.username }));
+      }
+    }
+
+    res.json({ photos, videos, audio, documents, links });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch media gallery' });
+  }
+});
+
+/* ========================================================================= */
+/* CALL HISTORY                                                              */
+/* ========================================================================= */
+
+// Log a Call
+router.post('/:roomId/calls', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const { receiverId, type = 'audio', status = 'completed', durationSeconds = 0 } = req.body;
+  const userId = req.user.id;
+
+  const id = 'call-' + uuidv4().slice(0, 8);
+  const now = new Date().toISOString();
+
+  try {
+    db.prepare(`
+      INSERT INTO call_history (id, room_id, caller_id, receiver_id, type, status, duration_seconds, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, roomId, userId, receiverId || userId, type, status, Number(durationSeconds || 0), now);
+
+    res.json({ success: true, callId: id });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to log call' });
+  }
+});
+
+// Get Call History
+router.get('/:roomId/calls', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user.id;
+
+  try {
+    const calls = db.prepare(`
+      SELECT ch.*, u1.username as caller_name, u2.username as receiver_name
+      FROM call_history ch
+      LEFT JOIN users u1 ON ch.caller_id = u1.id
+      LEFT JOIN users u2 ON ch.receiver_id = u2.id
+      WHERE ch.room_id = ?
+      ORDER BY ch.created_at DESC
+      LIMIT 30
+    `).all(roomId);
+
+    res.json({ calls });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch call history', calls: [] });
+  }
 });
 
 module.exports = router;

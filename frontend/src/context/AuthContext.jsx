@@ -28,8 +28,12 @@ export function AuthProvider({ children }) {
     loadUser();
   }, [token]);
 
-  const login = async (usernameOrEmail, password) => {
-    const res = await api.login({ usernameOrEmail, password });
+  const login = async (arg1, arg2) => {
+    let payload = typeof arg1 === 'object' ? arg1 : { usernameOrEmail: arg1, password: arg2 };
+    if (!payload.usernameOrEmail && payload.username) {
+      payload.usernameOrEmail = payload.username;
+    }
+    const res = await api.login(payload);
     localStorage.setItem('duocore_token', res.token);
     setToken(res.token);
     setUser(res.user);
@@ -37,8 +41,9 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const register = async (username, email, password) => {
-    const res = await api.register({ username, email, password });
+  const register = async (arg1, arg2, arg3) => {
+    let payload = typeof arg1 === 'object' ? arg1 : { username: arg1, email: arg2, password: arg3 };
+    const res = await api.register(payload);
     localStorage.setItem('duocore_token', res.token);
     setToken(res.token);
     setUser(res.user);

@@ -100,19 +100,57 @@ function initDb() {
     );
   `);
 
-  // 2. Migration: Ensure channel_type exists on messages table if it was created previously
+  // 2. Migration: Ensure channel_type and is_deleted exist on messages, and user settings columns exist
   try {
-    const columns = db.prepare("PRAGMA table_info(messages)").all();
-    const hasChannelType = columns.some(c => c.name === 'channel_type');
-    if (!hasChannelType) {
+    const msgCols = db.prepare("PRAGMA table_info(messages)").all();
+    if (!msgCols.some(c => c.name === 'channel_type')) {
       db.exec("ALTER TABLE messages ADD COLUMN channel_type TEXT DEFAULT 'normal'");
+    }
+    if (!msgCols.some(c => c.name === 'is_deleted')) {
+      db.exec("ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0");
+    }
+
+    const userCols = db.prepare("PRAGMA table_info(users)").all();
+    if (!userCols.some(c => c.name === 'phone_number')) {
+      db.exec("ALTER TABLE users ADD COLUMN phone_number TEXT DEFAULT ''");
+    }
+    if (!userCols.some(c => c.name === 'custom_wallpaper')) {
+      db.exec("ALTER TABLE users ADD COLUMN custom_wallpaper TEXT DEFAULT ''");
+    }
+    if (!userCols.some(c => c.name === 'read_receipts')) {
+      db.exec("ALTER TABLE users ADD COLUMN read_receipts INTEGER DEFAULT 1");
+    }
+    if (!userCols.some(c => c.name === 'last_seen_privacy')) {
+      db.exec("ALTER TABLE users ADD COLUMN last_seen_privacy TEXT DEFAULT 'everyone'");
     }
   } catch (err) {
     console.error('[DB] Migration check failed:', err);
   }
 
-  // 3. Create remaining core tables
+  // 3. Create remaining core tables and Stories tables (Snap/Insta feature)
   db.exec(`
+    CREATE TABLE IF NOT EXISTS stories (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      media_url TEXT NOT NULL,
+      media_type TEXT DEFAULT 'image',
+      caption TEXT DEFAULT '',
+      views_count INTEGER DEFAULT 0,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS story_views (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      viewed_at TEXT NOT NULL,
+      UNIQUE(story_id, user_id),
+      FOREIGN KEY(story_id) REFERENCES stories(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS message_reactions (
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL,
@@ -350,11 +388,113 @@ function initDb() {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    /* ========================================================================= */
+    /* 5. SOUNDWAVE MUSIC & DUO UPGRADE TABLES                                  */
+    /* ========================================================================= */
+
+    CREATE TABLE IF NOT EXISTS favorites (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL,
+      thumbnail TEXT DEFAULT '',
+      duration TEXT DEFAULT '',
+      album TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, track_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS playlists (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      cover_url TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS playlist_songs (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL,
+      thumbnail TEXT DEFAULT '',
+      duration TEXT DEFAULT '',
+      album TEXT DEFAULT '',
+      position INTEGER DEFAULT 0,
+      added_at TEXT NOT NULL,
+      UNIQUE(playlist_id, track_id),
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL,
+      thumbnail TEXT DEFAULT '',
+      duration TEXT DEFAULT '',
+      album TEXT DEFAULT '',
+      played_at TEXT NOT NULL,
+      play_duration_seconds INTEGER DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS starred_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      room_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, message_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      pinned_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(room_id, message_id),
+      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY(pinned_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS call_history (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      caller_id TEXT NOT NULL,
+      receiver_id TEXT NOT NULL,
+      type TEXT DEFAULT 'audio',
+      status TEXT DEFAULT 'completed',
+      duration_seconds INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY(caller_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
     CREATE INDEX IF NOT EXISTS idx_room_members_room ON room_members(room_id);
     CREATE INDEX IF NOT EXISTS idx_messages_room_channel ON messages(room_id, channel_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_community_challenges_cat ON community_challenges(category);
+    CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, position ASC);
+    CREATE INDEX IF NOT EXISTS idx_listening_history_user ON listening_history(user_id, played_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_starred_messages_user ON starred_messages(user_id, room_id);
+    CREATE INDEX IF NOT EXISTS idx_pinned_messages_room ON pinned_messages(room_id);
+    CREATE INDEX IF NOT EXISTS idx_call_history_room ON call_history(room_id, created_at DESC);
   `);
 
   // 5. Seed Questions
@@ -397,115 +537,6 @@ function initDb() {
       }
     });
     insertManyAch(ACHIEVEMENTS);
-  }
-
-  // 7. Seed Initial Community Posts & CTF Challenges
-  const countPosts = db.prepare('SELECT COUNT(*) as count FROM community_posts').get().count;
-  if (countPosts === 0) {
-    console.log('[DB] Seeding public community writeups & challenges...');
-    
-    // Create system community author if not present
-    const sysUser = db.prepare("SELECT id FROM users WHERE username = 'CyberSentinel'").get();
-    let authorId = sysUser?.id;
-    if (!authorId) {
-      authorId = 'user-sentinel-01';
-      const hash = bcrypt.hashSync('cyberpassword123', 10);
-      db.prepare(`
-        INSERT INTO users (id, username, email, password_hash, avatar_url, bio, xp, level, streak, created_at)
-        VALUES (?, 'CyberSentinel', 'sentinel@duocore.app', ?, 'https://api.dicebear.com/7.x/bottts/svg?seed=CyberSentinel', 'Security Researcher & Linux Kernel Explorer', 2450, 25, 14, ?)
-      `).run(authorId, hash, new Date().toISOString());
-    }
-
-    const insertPost = db.prepare(`
-      INSERT INTO community_posts (id, user_id, title, category, tags, content, code_snippet, likes_count, comments_count, views_count, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const posts = [
-      {
-        id: 'post-1',
-        title: 'Mastering Linux SUID Privilege Escalation (From Discovery to Root)',
-        category: 'writeup',
-        tags: JSON.stringify(['#Linux', '#PrivEsc', '#SUID', '#Hardening']),
-        content: 'When auditing Linux systems for privilege escalation vectors, SUID (Set Owner User ID up on execution) binaries should be your very first check. Binaries with the SUID bit execute with root privileges regardless of who runs them.\n\n### Step 1: Discover SUID Binaries\nRun `find / -perm -4000 2>/dev/null`.\n\n### Step 2: Exploit Misconfigurations\nIf custom binaries or interpreters like Python or Vim have SUID enabled, you can spawn an interactive root shell instantly.',
-        code_snippet: 'find / -perm -u=s -type f 2>/dev/null\n# Example GTFOBins Vim SUID exploit:\nvim -c \':py3 import os; os.execl("/bin/sh", "sh", "-pc", "reset; exec sh -p")\'',
-        likes: 24,
-        comments: 5,
-        views: 310
-      },
-      {
-        id: 'post-2',
-        title: 'Understanding SQL Injection: In-Band, Blind & Time-Based Techniques',
-        category: 'tutorial',
-        tags: JSON.stringify(['#WebSecurity', '#SQLi', '#OWASP', '#Defense']),
-        content: 'SQL Injection remains one of the most critical vulnerabilities in the OWASP Top 10. In this writeup, we analyze vulnerable parameterized query failures and demonstrate defensive techniques using Prepared Statements.\n\nAlways enforce strict parameterized queries with placeholders instead of string concatenation!',
-        code_snippet: '// Vulnerable:\nconst query = `SELECT * FROM users WHERE user = \'${userInput}\'`;\n\n// Secure (Parameterized):\nconst query = "SELECT * FROM users WHERE user = $1";',
-        likes: 19,
-        comments: 3,
-        views: 185
-      },
-      {
-        id: 'post-3',
-        title: 'Network Port Hardening: Replacing Legacy Services with TLS 1.3 & SSH Keys',
-        category: 'writeup',
-        tags: JSON.stringify(['#Networking', '#SSH', '#TLS', '#Firewall']),
-        content: 'Leaving ports 21 (FTP), 23 (Telnet), or 80 (HTTP) open in production exposes plaintext credentials over the wire. Audit your open listening sockets using `ss -tulpn` and disable root password SSH logins in `/etc/ssh/sshd_config`.',
-        code_snippet: '# Check open listening sockets:\nss -tulpn | grep LISTEN\n\n# Harden SSH config:\nPermitRootLogin no\nPasswordAuthentication no',
-        likes: 31,
-        comments: 8,
-        views: 420
-      }
-    ];
-
-    for (const p of posts) {
-      insertPost.run(p.id, authorId, p.title, p.category, p.tags, p.content, p.code_snippet, p.likes, p.comments, p.views, new Date().toISOString(), new Date().toISOString());
-    }
-
-    // Seed CTF Challenges
-    const insertChall = db.prepare(`
-      INSERT INTO community_challenges (id, created_by, title, category, difficulty, points, description, hint, flag, solved_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const challenges = [
-      {
-        id: 'chall-1',
-        title: 'Secret Cipher Decryption (ROT13 + Base64)',
-        category: 'Cryptography',
-        difficulty: 'easy',
-        points: 50,
-        description: 'An intercepted network packet contained an encrypted authorization token: `RFVPe2NyeXB0b19iYXNlNjRfcm90MTNfbWFzdGVyfQ==`. Decode the secret token to retrieve the flag.',
-        hint: 'First decode Base64, then inspect the characters.',
-        flag: 'DUO{crypto_base64_rot13_master}',
-        solved_count: 14
-      },
-      {
-        id: 'chall-2',
-        title: 'Linux Hidden Permissions SUID Audit',
-        category: 'Linux Privilege Escalation',
-        difficulty: 'medium',
-        points: 100,
-        description: 'You gained low-privilege access to a Linux host. Find the hidden SUID binary in `/var/backups/.secret_agent` and execute it with the correct auth key to extract the flag.',
-        hint: 'Use chmod permissions check and run strings or inspect binary parameters.',
-        flag: 'DUO{suid_privesc_kernel_zero_day}',
-        solved_count: 9
-      },
-      {
-        id: 'chall-3',
-        title: 'OWASP SQLi Auth Bypass',
-        category: 'Web Security',
-        difficulty: 'medium',
-        points: 100,
-        description: 'A legacy login form fails to sanitize the username input parameter: `username: admin\' OR 1=1--`. Bypass the authentication logic to claim the flag.',
-        hint: 'Classic SQL tautology bypass.',
-        flag: 'DUO{sqli_bypass_admin_auth_pwned}',
-        solved_count: 11
-      }
-    ];
-
-    for (const c of challenges) {
-      insertChall.run(c.id, authorId, c.title, c.category, c.difficulty, c.points, c.description, c.hint, c.flag, c.solved_count, new Date().toISOString());
-    }
   }
 
   console.log('[DB] DUOCORE database ready.');

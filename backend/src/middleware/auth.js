@@ -44,9 +44,29 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    req.user = null;
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    req.user = null;
+    return next();
+  }
+
+  const user = db.prepare('SELECT id, username, email, avatar_url, bio, xp, level, streak, sound_enabled, motion_reduced, theme FROM users WHERE id = ?').get(decoded.id);
+  req.user = user || null;
+  next();
+}
+
 module.exports = {
   JWT_SECRET,
   generateToken,
   verifyToken,
-  requireAuth
+  requireAuth,
+  optionalAuth
 };

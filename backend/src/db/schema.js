@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS messages (
   metadata TEXT DEFAULT '{}',
   reply_to_id TEXT DEFAULT NULL,
   is_read INTEGER DEFAULT 0,
+  is_deleted INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
   FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE

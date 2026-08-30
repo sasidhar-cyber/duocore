@@ -13,7 +13,8 @@ import {
   Minimize2,
   Users,
   Shield,
-  Sparkles
+  Sparkles,
+  SwitchCamera
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -33,6 +34,7 @@ export function VideoCallModal({ isOpen, onClose }) {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [facingMode, setFacingMode] = useState('user');
 
   const [callPeers, setCallPeers] = useState([]); // List of connected remote peer info
   const localVideoRef = useRef(null);
@@ -298,6 +300,40 @@ export function VideoCallModal({ isOpen, onClose }) {
     }
   };
 
+  // Flip Mobile Camera (Front / Rear)
+  const flipCamera = async () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextMode }, width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      const newTrack = stream.getVideoTracks()[0];
+
+      if (localStreamRef.current) {
+        const oldTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldTrack) {
+          oldTrack.stop();
+          localStreamRef.current.removeTrack(oldTrack);
+        }
+        localStreamRef.current.addTrack(newTrack);
+      }
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+
+      Object.values(peerConnections.current).forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+        if (sender) sender.replaceTrack(newTrack);
+      });
+      playSound('click');
+    } catch (e) {
+      console.warn('Flip camera error:', e);
+    }
+  };
+
   // Toggle Screen Share
   const toggleScreenShare = async () => {
     if (!isScreenSharing) {
@@ -505,6 +541,17 @@ export function VideoCallModal({ isOpen, onClose }) {
             {isVideoOff ? <VideoOff className="w-4 h-4 text-amber-400" /> : <Video className="w-4 h-4 text-cyan-400" />}
             <span className="hidden sm:inline">{isVideoOff ? 'Camera On' : 'Camera Off'}</span>
           </button>
+
+          {!isVideoOff && (
+            <button
+              onClick={flipCamera}
+              className="p-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition-all shadow-md bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800"
+              title="Flip Camera (Front / Rear)"
+            >
+              <SwitchCamera className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Flip</span>
+            </button>
+          )}
 
           <button
             onClick={toggleScreenShare}

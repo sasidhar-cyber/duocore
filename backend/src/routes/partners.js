@@ -1,6 +1,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { isUserOnline, getUserLastSeen } = require('../sockets/presenceHandler');
 
 const router = express.Router();
 
@@ -22,14 +23,20 @@ router.get('/current', requireAuth, (req, res) => {
     const roomId = memberRecord.room_id;
 
     // Fetch all members in this room squad
-    const members = db.prepare(`
-      SELECT u.id, u.username, u.email, u.avatar_url, u.bio, u.xp, u.level, u.streak,
+    const rawMembers = db.prepare(`
+      SELECT u.id, u.username, u.email, u.phone_number, u.avatar_url, u.bio, u.xp, u.level, u.streak,
              rm.role, rm.current_subject, rm.current_topic, rm.is_studying, rm.last_seen, rm.joined_at
       FROM room_members rm
       JOIN users u ON rm.user_id = u.id
       WHERE rm.room_id = ?
       ORDER BY rm.joined_at ASC
     `).all(roomId);
+
+    const members = rawMembers.map(m => ({
+      ...m,
+      is_online: isUserOnline(m.id),
+      last_seen: isUserOnline(m.id) ? 'now' : (getUserLastSeen(m.id) || m.last_seen)
+    }));
 
     const otherMembers = members.filter(m => m.id !== userId);
     const primaryPartner = otherMembers.length > 0 ? otherMembers[0] : null;

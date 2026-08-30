@@ -17,8 +17,11 @@ echo "⚡ Starting Frontend UI on http://localhost:3000..."
 cd /home/sasidhar/Projects/duocore/frontend && npx vite --host 0.0.0.0 --port 3000 > /tmp/duocore-frontend.log 2>&1 &
 FRONTEND_PID=$!
 
+# Trap signals to clean up background processes when script exits
+trap "kill -9 $BACKEND_PID $FRONTEND_PID 2>/dev/null" INT TERM EXIT
+
 sleep 3
 
 # 4. Start Cloudflare Tunnel for Public Mobile/Web Access
 echo "🌐 Starting Cloudflare Public Tunnel..."
-/home/sasidhar/Projects/duocore/cloudflared tunnel --protocol http2 --url http://localhost:3000
+/home/sasidhar/Projects/duocore/cloudflared tunnel --url http://127.0.0.1:3000

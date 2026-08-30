@@ -2,6 +2,7 @@ import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRoom } from '../context/RoomContext';
 import { getHackerRank } from '../utils/hackerTitles';
+import { formatLastSeen } from '../utils/timeFormat';
 import { Shield, Terminal, Users, Sparkles, UserPlus } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -33,8 +34,8 @@ export function DualPresenceBar({ onOpenInvite }) {
               </span>
             </div>
             <p className="text-[11px] text-pink-300 font-medium truncate mt-0.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-pulse" />
-              <span>Studying: Cybersecurity & Linux</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Online • Studying: Cybersecurity & Linux</span>
             </p>
           </div>
         </div>
@@ -44,16 +45,23 @@ export function DualPresenceBar({ onOpenInvite }) {
           {otherMembers.length > 0 ? (
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex items-center -space-x-3 shrink-0">
-                {otherMembers.slice(0, 4).map((m) => (
-                  <div key={m.id} className="relative group/squad" title={`${m.username} (Lv.${m.level || 1})`}>
-                    <img
-                      src={m.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=squad'}
-                      alt={m.username}
-                      className="w-10 h-10 rounded-2xl object-cover ring-2 ring-indigo-500/60 shadow-md bg-slate-900"
-                    />
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-950" />
-                  </div>
-                ))}
+                {otherMembers.slice(0, 4).map((m) => {
+                  const isOnline = m.is_online || m.last_seen === 'now';
+                  return (
+                    <div key={m.id} className="relative group/squad" title={`${m.username} (Lv.${m.level || 1}) - ${isOnline ? 'Active now' : formatLastSeen(m.last_seen, false)}`}>
+                      <img
+                        src={m.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=squad'}
+                        alt={m.username}
+                        className="w-10 h-10 rounded-2xl object-cover ring-2 ring-indigo-500/60 shadow-md bg-slate-900"
+                      />
+                      <div
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
+                          isOnline ? 'bg-emerald-500' : 'bg-slate-600'
+                        }`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="min-w-0">
@@ -68,8 +76,18 @@ export function DualPresenceBar({ onOpenInvite }) {
                   </span>
                 </div>
                 <p className="text-[11px] text-cyan-300 font-medium truncate mt-0.5 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span>{otherMembers[0]?.current_topic || 'Linux & Cybersecurity Labs'}</span>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      otherMembers[0]?.is_online || otherMembers[0]?.last_seen === 'now'
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-slate-500'
+                    }`}
+                  />
+                  <span>
+                    {otherMembers[0]?.is_online || otherMembers[0]?.last_seen === 'now'
+                      ? 'Active now'
+                      : formatLastSeen(otherMembers[0]?.last_seen, false)}
+                  </span>
                 </p>
               </div>
             </div>

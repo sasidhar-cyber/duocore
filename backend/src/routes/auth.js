@@ -60,19 +60,20 @@ router.post('/register', authLimiter, (req, res) => {
 
 // Login
 router.post('/login', authLimiter, (req, res) => {
-  const { usernameOrEmail, password } = req.body;
-  if (!usernameOrEmail || !password) {
+  const target = String(req.body.usernameOrEmail || req.body.username || req.body.email || '').trim();
+  const password = req.body.password;
+
+  if (!target || !password) {
     return res.status(400).json({ error: 'Please enter your username/email and password.' });
   }
 
-  const target = String(usernameOrEmail).trim();
   const isEmail = EMAIL_REGEX.test(target);
   const user = isEmail
     ? db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(target)
     : db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)').get(target, target);
 
   if (!user) {
-    return res.status(401).json({ error: 'User account not found. Please register or check details.' });
+    return res.status(401).json({ error: 'User account not found. Please click "Create Account" first.' });
   }
   if (!bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Incorrect password. Please try again.' });
@@ -137,12 +138,20 @@ router.post('/demo-login', (req, res) => {
 
 // Current User Profile
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: req.user });
+  const user = db.prepare(`
+    SELECT id, username, email, phone_number, avatar_url, bio, xp, level, streak,
+           sound_enabled, motion_reduced, theme, custom_wallpaper, read_receipts, last_seen_privacy, created_at
+    FROM users WHERE id = ?
+  `).get(req.user.id);
+  res.json({ user: user || req.user });
 });
 
-// Update Profile / Rename Username
-router.patch('/profile', requireAuth, (req, res) => {
-  const { username, bio, avatar_url } = req.body;
+// Update Profile & WhatsApp-style App Settings
+router.patch('/profile', requireAuth, (req, res) => handleProfileUpdate(req, res));
+router.put('/profile', requireAuth, (req, res) => handleProfileUpdate(req, res));
+
+function handleProfileUpdate(req, res) {
+  const { username, bio, avatar_url, phone_number, theme, custom_wallpaper, read_receipts, last_seen_privacy, sound_enabled } = req.body;
   
   if (username && (username.trim().length < 2 || username.trim().length > 30)) {
     return res.status(400).json({ error: 'Username must be between 2 and 30 characters.' });
@@ -155,24 +164,64 @@ router.patch('/profile', requireAuth, (req, res) => {
     }
   }
 
-  const newUsername = username ? username.trim() : req.user.username;
-  const newBio = bio !== undefined ? bio.trim() : req.user.bio;
-  const newAvatar = avatar_url || req.user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(newUsername)}`;
+  const currentUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const newUsername = username ? username.trim() : currentUser.username;
+  const newBio = bio !== undefined ? bio.trim() : currentUser.bio;
+  const newAvatar = avatar_url || currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(newUsername)}`;
+  const newPhone = phone_number !== undefined ? String(phone_number).trim() : (currentUser.phone_number || '');
+  const newTheme = theme || currentUser.theme || 'dark';
+  const newWallpaper = custom_wallpaper !== undefined ? custom_wallpaper : (currentUser.custom_wallpaper || '');
+  const newReadReceipts = read_receipts !== undefined ? (read_receipts ? 1 : 0) : (currentUser.read_receipts ?? 1);
+  const newLastSeenPrivacy = last_seen_privacy || currentUser.last_seen_privacy || 'everyone';
+  const newSoundEnabled = sound_enabled !== undefined ? (sound_enabled ? 1 : 0) : (currentUser.sound_enabled ?? 0);
 
   db.prepare(`
     UPDATE users
-    SET username = ?, bio = ?, avatar_url = ?
+    SET username = ?, bio = ?, avatar_url = ?, phone_number = ?, theme = ?,
+        custom_wallpaper = ?, read_receipts = ?, last_seen_privacy = ?, sound_enabled = ?
     WHERE id = ?
-  `).run(newUsername, newBio, newAvatar, req.user.id);
+  `).run(newUsername, newBio, newAvatar, newPhone, newTheme, newWallpaper, newReadReceipts, newLastSeenPrivacy, newSoundEnabled, req.user.id);
 
-  const updatedUser = db.prepare('SELECT id, username, email, avatar_url, bio, xp, level, streak, sound_enabled, motion_reduced, theme FROM users WHERE id = ?').get(req.user.id);
+  const updatedUser = db.prepare(`
+    SELECT id, username, email, phone_number, avatar_url, bio, xp, level, streak,
+           sound_enabled, motion_reduced, theme, custom_wallpaper, read_receipts, last_seen_privacy
+    FROM users WHERE id = ?
+  `).get(req.user.id);
   const token = generateToken(updatedUser);
 
   res.json({
-    message: 'Profile updated successfully',
+    message: 'Profile & Settings updated successfully',
     token,
     user: updatedUser
   });
+}
+
+// Change Password
+router.post('/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Both current password and new password are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  if (!bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password does not match.' });
+  }
+
+  const salt = bcrypt.genSaltSync(10);
+  const newHash = bcrypt.hashSync(newPassword, salt);
+
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, req.user.id);
+
+  res.json({ message: 'Password changed successfully! You can now log in with your new password.' });
 });
 
 module.exports = router;

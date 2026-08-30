@@ -161,6 +161,39 @@ export function RoomProvider({ children }) {
       setTimerState(state);
     };
 
+    const handleUserStatusChange = ({ userId, isOnline, lastSeen }) => {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === userId ? { ...m, is_online: isOnline, last_seen: isOnline ? 'now' : lastSeen } : m
+        )
+      );
+      setPartner((prev) =>
+        prev && prev.id === userId ? { ...prev, is_online: isOnline, last_seen: isOnline ? 'now' : lastSeen } : prev
+      );
+    };
+
+    const handleRoomStatuses = ({ statuses }) => {
+      if (!Array.isArray(statuses)) return;
+      const statusMap = new Map(statuses.map((s) => [s.userId, s]));
+      setMembers((prev) =>
+        prev.map((m) => {
+          const stat = statusMap.get(m.id);
+          return stat ? { ...m, is_online: stat.isOnline, last_seen: stat.lastSeen } : m;
+        })
+      );
+      setPartner((prev) => {
+        if (!prev) return prev;
+        const stat = statusMap.get(prev.id);
+        return stat ? { ...prev, is_online: stat.isOnline, last_seen: stat.lastSeen } : prev;
+      });
+    };
+
+    const handleSocketConnect = () => {
+      if (currentRoomIdRef.current) {
+        s.emit('room:join', { roomId: currentRoomIdRef.current });
+      }
+    };
+
     const handleReaction = ({ messageId, userId, emoji, action }) => {
       const updateList = (list) =>
         list.map((m) => {
@@ -183,9 +216,12 @@ export function RoomProvider({ children }) {
       playSound('quiz_correct');
     };
 
+    s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
     s.on('chat:partner_typing', handlePartnerTyping);
     s.on('presence:partner_status', handlePartnerStatus);
+    s.on('presence:user_status_change', handleUserStatusChange);
+    s.on('presence:room_statuses', handleRoomStatuses);
     s.on('room:partner_joined', handlePartnerJoined);
     s.on('room:member_joined', handleMemberJoined);
     s.on('room:partner_left', handlePartnerLeft);
@@ -196,9 +232,12 @@ export function RoomProvider({ children }) {
     s.on('quiz:challenge_received', handleChallenge);
 
     return () => {
+      s.off('connect', handleSocketConnect);
       s.off('chat:new_message', handleNewMessage);
       s.off('chat:partner_typing', handlePartnerTyping);
       s.off('presence:partner_status', handlePartnerStatus);
+      s.off('presence:user_status_change', handleUserStatusChange);
+      s.off('presence:room_statuses', handleRoomStatuses);
       s.off('room:partner_joined', handlePartnerJoined);
       s.off('room:member_joined', handleMemberJoined);
       s.off('room:partner_left', handlePartnerLeft);
@@ -209,6 +248,18 @@ export function RoomProvider({ children }) {
       s.off('quiz:challenge_received', handleChallenge);
     };
   }, [user?.id, refreshPartnerState]);
+
+  // Periodic heartbeat
+  useEffect(() => {
+    if (!roomData?.id) return;
+    const interval = setInterval(() => {
+      const s = getSocket();
+      if (s && s.connected) {
+        s.emit('presence:heartbeat', { roomId: roomData.id });
+      }
+    }, 25000);
+    return () => clearInterval(interval);
+  }, [roomData?.id]);
 
   // Actions
   const createInvite = async () => {
@@ -260,11 +311,35 @@ export function RoomProvider({ children }) {
     }
   };
 
-  const sendTyping = (isTyping) => {
+  const sendTyping = (isTyping, channel = activeChannel) => {
     if (!roomData) return;
     const s = getSocket();
     if (s) {
-      s.emit('chat:typing', { roomId: roomData.id, channel: activeChannel, isTyping });
+      s.emit('chat:typing', { roomId: roomData.id, channel: channel || activeChannel, isTyping });
+    }
+  };
+
+  const markChannelRead = async (channel = activeChannel, senderId = null) => {
+    if (!roomData) return;
+    const s = getSocket();
+    if (s && s.connected) {
+      s.emit('chat:mark_read', { roomId: roomData.id, channel, senderId });
+    } else {
+      try {
+        await api.markMessagesRead(roomData.id, { channel, senderId });
+      } catch (e) {}
+    }
+  };
+
+  const deleteMessage = async (messageId, channel = activeChannel) => {
+    if (!roomData) return;
+    const s = getSocket();
+    if (s && s.connected) {
+      s.emit('chat:delete_message', { roomId: roomData.id, messageId, channel });
+    } else {
+      try {
+        await api.deleteMessage(roomData.id, messageId);
+      } catch (e) {}
     }
   };
 
@@ -307,6 +382,8 @@ export function RoomProvider({ children }) {
     removePartner,
     sendMessage,
     sendTyping,
+    markChannelRead,
+    deleteMessage,
     reactToMessage,
     updateStudyStatus
   };
