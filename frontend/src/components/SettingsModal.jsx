@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useMusic } from '../context/MusicContext';
 import api from '../services/api';
+import { Avatar } from './Avatar';
 import {
   X,
   User,
@@ -322,19 +323,19 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
           {activeTab === 'account' && (
             <form onSubmit={handleUpdateProfile} className="space-y-3.5 animate-in fade-in">
               <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-900/60 border border-slate-800">
-                <img
+                <Avatar
                   src={avatarUrl || user?.avatar_url}
-                  alt={username}
-                  className="w-14 h-14 rounded-2xl object-cover ring-2 ring-emerald-500/50 shrink-0"
+                  name={username || user?.username}
+                  className="w-14 h-14 rounded-2xl ring-2 ring-emerald-500/50"
                 />
                 <div className="space-y-1">
-                  <h4 className="text-xs font-black text-white">{username}</h4>
+                  <h4 className="text-xs font-black text-white">{username || user?.username}</h4>
                   <button
                     type="button"
                     onClick={randomizeAvatar}
                     className="px-3 py-1 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/30"
                   >
-                    🎲 Change Avatar
+                    🎲 Random Avatar
                   </button>
                 </div>
               </div>

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRoom } from '../context/RoomContext';
 import { useMusic } from '../context/MusicContext';
 import { getSocket } from '../services/socket';
+import { Avatar } from './Avatar';
 import { VideoCallModal } from './VideoCallModal';
 import { AudioCallModal } from './AudioCallModal';
 import { IncomingCallModal } from './IncomingCallModal';
@@ -469,10 +470,10 @@ export function ChatView({ onOpenInvite, onBack }) {
           )}
 
           <div className="relative shrink-0">
-            <img
-              src={partnerAvatar}
-              alt={otherPartner?.username || 'Partner'}
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl object-cover ring-2 ring-emerald-500/40"
+            <Avatar
+              src={otherPartner?.avatar_url}
+              name={otherPartner?.username || 'Partner'}
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ring-2 ring-emerald-500/40"
             />
             <div
               className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${

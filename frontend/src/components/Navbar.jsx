@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useMusic } from '../context/MusicContext';
 import { SettingsModal } from './SettingsModal';
+import { Avatar } from './Avatar';
 import {
   Music,
   Compass,
@@ -115,10 +116,10 @@ export function Navbar({ onOpenAuth, onOpenPinPrompt }) {
                   onClick={() => setProfileOpen(!profileOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 transition-all"
                 >
-                  <img
-                    src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username}`}
-                    alt={user.username}
-                    className="w-7 h-7 rounded-xl object-cover ring-1 ring-emerald-500/40"
+                  <Avatar
+                    src={user.avatar_url}
+                    name={user.username}
+                    className="w-7 h-7 rounded-xl ring-1 ring-emerald-500/40"
                   />
                   <span className="text-xs font-bold text-slate-200 hidden md:block max-w-[90px] truncate">
                     {user.username}
