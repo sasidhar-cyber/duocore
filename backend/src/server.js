@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const { initDb } = require('./db');
@@ -108,11 +109,11 @@ const activeDist = fs.existsSync(frontendDist) ? frontendDist : (fs.existsSync(a
 
 if (activeDist) {
   app.use(express.static(activeDist));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/socket.io')) {
-      return next();
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads') && !req.path.startsWith('/socket.io')) {
+      return res.sendFile(path.join(activeDist, 'index.html'));
     }
-    res.sendFile(path.join(activeDist, 'index.html'));
+    next();
   });
 }
 
