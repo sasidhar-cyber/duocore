@@ -14,7 +14,8 @@ import {
   LogOut,
   User,
   Volume2,
-  VolumeX
+  VolumeX,
+  MessageSquareLock
 } from 'lucide-react';
 
 export function Navbar({ onOpenAuth }) {
@@ -23,33 +24,16 @@ export function Navbar({ onOpenAuth }) {
   const { appTitle, openSecretChat, changeTheme, activeTheme, THEMES } = useMusic();
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [secretCounter, setSecretCounter] = useState(0);
-
-  // Stealth Secret Vault Trigger in Logo or Equalizer (Triple click)
-  const handleStealthClick = () => {
-    setSecretCounter((prev) => {
-      const next = prev + 1;
-      if (next >= 3) {
-        openSecretChat();
-        return 0;
-      }
-      return next;
-    });
-
-    setTimeout(() => {
-      setSecretCounter(0);
-    }, 2000);
-  };
 
   return (
     <>
       <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl select-none">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Logo & Stealth Trigger */}
+          {/* Logo */}
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group"
-            onClick={handleStealthClick}
-            title={appTitle}
+            onClick={openSecretChat}
+            title={`${appTitle} (Tap to open Duo Chat / Vault)`}
           >
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 p-[1.5px] shadow-lg shadow-emerald-500/20 shrink-0 group-hover:scale-105 transition-transform">
               <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center text-sm sm:text-lg font-black text-emerald-400">
@@ -71,26 +55,27 @@ export function Navbar({ onOpenAuth }) {
             </div>
           </div>
 
-          {/* Right Action Tools: Equalizer (Secret Trigger), Theme, Settings, Profile */}
+          {/* Right Action Tools: Equalizer / Chat Trigger, Settings, Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Stealth Equalizer Button */}
+            {/* Direct 1-Click Secret Equalizer / Chat Trigger */}
             <button
-              onClick={handleStealthClick}
-              className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-emerald-400 transition-colors"
-              title="Audio Equalizer (Triple-tap unlocks secret vault)"
+              onClick={openSecretChat}
+              className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+              title="Open Duo Chat & Equalizer (PIN: 1234)"
             >
-              <div className="flex items-end gap-0.5 h-3.5 w-3.5 justify-center">
+              <div className="flex items-end gap-0.5 h-3.5 w-3 justify-center">
                 <div className="w-0.5 h-full bg-emerald-400 rounded-full animate-pulse" />
                 <div className="w-0.5 h-2/3 bg-emerald-400 rounded-full animate-pulse delay-75" />
                 <div className="w-0.5 h-4/5 bg-emerald-400 rounded-full animate-pulse delay-150" />
               </div>
+              <span className="text-[11px] font-mono tracking-tight hidden xs:inline">Duo Chat</span>
             </button>
 
             {/* Settings Button */}
             <button
               onClick={() => setSettingsOpen(true)}
               className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-slate-400 hover:text-white transition-all"
-              title="Player Settings & App Name"
+              title="Player Settings"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -99,45 +84,55 @@ export function Navbar({ onOpenAuth }) {
               <div className="relative">
                 <button
                   onClick={() => setProfileOpen(!profileOpen)}
-                  className="flex items-center gap-1.5 sm:gap-2 p-1 pl-1.5 pr-2 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-emerald-500/40 transition-all"
+                  className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 transition-all"
                 >
                   <img
-                    src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username || 'user')}`}
+                    src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username}`}
                     alt={user.username}
-                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-slate-800 object-cover ring-1 ring-emerald-500/40"
+                    className="w-7 h-7 rounded-xl object-cover ring-1 ring-emerald-500/40"
                   />
-                  <span className="text-xs font-bold text-slate-200 hidden sm:inline">{user.username}</span>
+                  <span className="text-xs font-bold text-slate-200 hidden md:block max-w-[90px] truncate">
+                    {user.username}
+                  </span>
                 </button>
 
                 {profileOpen && (
-                  <div className="absolute right-0 mt-2 w-56 rounded-2xl glass-panel p-3 shadow-2xl border border-slate-700/80 z-50 animate-in fade-in bg-slate-950/95">
-                    <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 mb-2">
-                      <h4 className="text-xs font-bold text-white truncate">{user.username}</h4>
-                      <p className="text-[10px] text-emerald-400 font-mono">Premium Music Member</p>
+                  <div className="absolute right-0 mt-2 w-56 glass-panel rounded-2xl p-2 border border-slate-800 shadow-2xl z-50 bg-slate-950/95 animate-in fade-in zoom-in-95">
+                    <div className="p-3 border-b border-slate-800/80">
+                      <p className="text-xs font-extrabold text-white truncate">{user.username}</p>
+                      <p className="text-[10px] text-slate-400 font-mono truncate">{user.email}</p>
                     </div>
 
-                    <button
-                      onClick={() => { setProfileOpen(false); setSettingsOpen(true); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-900 transition-all mb-1 text-left"
-                    >
-                      <Settings className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Settings & Password</span>
-                    </button>
+                    <div className="p-1.5 space-y-1">
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          openSecretChat();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                      >
+                        <MessageSquareLock className="w-4 h-4" />
+                        <span>Open Duo Chat (1234)</span>
+                      </button>
 
-                    <button
-                      onClick={() => { logout(); setProfileOpen(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-red-400 hover:bg-red-950/40 transition-all text-left"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Log Out</span>
-                    </button>
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          logout();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             ) : (
               <button
-                onClick={() => onOpenAuth && onOpenAuth()}
-                className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
+                onClick={onOpenAuth}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition-all shadow-md shadow-emerald-500/20 active:scale-95"
               >
                 Sign In
               </button>
