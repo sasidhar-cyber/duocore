@@ -119,7 +119,28 @@ async function resolveAudioStreamUrl(idOrQuery) {
     videoId = videoId.split('youtu.be/')[1].split('?')[0];
   }
 
-  // Strategy 1: yt-dlp with android player client extraction & geo-bypass
+  // Strategy 1: JioSaavn Direct High-Speed CDN Stream (Zero Bot Detection, Instant Playback)
+  try {
+    const songMeta = SPOTIFY_JIOSAAVN_TOP_SONGS.find((s) => s.id === videoId);
+    const searchQuery = songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery.replace('query:', '');
+    const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(searchQuery)}&ctx=web6dot0&_format=json`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 4000
+    });
+    const song = searchRes.data?.songs?.data?.[0];
+    if (song && song.more_info?.vlink) {
+      const streamUrl = song.more_info.vlink;
+      streamUrlCache.set(idOrQuery, {
+        url: streamUrl,
+        expireAt: Date.now() + 6 * 60 * 60 * 1000
+      });
+      return streamUrl;
+    }
+  } catch (e) {
+    console.warn('[Music Stream] Strategy 1 (JioSaavn) fallback:', e.message);
+  }
+
+  // Strategy 2: yt-dlp with tvhtml5 and android_creator clients
   try {
     const ytdlpCommand = fs.existsSync('/usr/local/bin/yt-dlp')
       ? '/usr/local/bin/yt-dlp'
@@ -135,7 +156,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
     const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=tvhtml5,android_creator" --geo-bypass --no-warnings "${target}"`;
 
     const stdout = await new Promise((resolve, reject) => {
-      exec(cmd, { timeout: 16000 }, (err, out) => {
+      exec(cmd, { timeout: 15000 }, (err, out) => {
         if (err) return reject(err);
         resolve(out);
       });
@@ -150,26 +171,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
       return streamUrl;
     }
   } catch (err) {
-    console.warn('[Music Stream] Strategy 1 (yt-dlp) failed:', err.message);
-  }
-
-  // Strategy 2: JioSaavn Direct Audio Stream Fallback
-  try {
-    const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(idOrQuery)}&ctx=web6dot0&_format=json`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 4000
-    });
-    const song = searchRes.data?.songs?.data?.[0];
-    if (song && song.more_info?.vlink) {
-      const streamUrl = song.more_info.vlink;
-      streamUrlCache.set(idOrQuery, {
-        url: streamUrl,
-        expireAt: Date.now() + 2 * 60 * 60 * 1000
-      });
-      return streamUrl;
-    }
-  } catch (e) {
-    console.warn('[Music Stream] Strategy 2 (JioSaavn) fallback error:', e.message);
+    console.warn('[Music Stream] Strategy 2 (yt-dlp) failed:', err.message);
   }
 
   // Strategy 3: Invidious Instances Audio Stream
@@ -281,37 +283,14 @@ router.get('/trending', (req, res) => {
   });
 });
 
-// 4. Audio Streaming Proxy with HTTP Range Support
+// 4. Audio Streaming Direct CDN Redirect
 router.get('/audio-stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!videoId) return res.status(400).send('Video ID required');
 
   try {
     const streamUrl = await resolveAudioStreamUrl(videoId);
-
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    };
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range;
-    }
-
-    const response = await axios({
-      method: 'GET',
-      url: streamUrl,
-      responseType: 'stream',
-      headers,
-      timeout: 20000
-    });
-
-    res.status(response.status);
-    if (response.headers['content-range']) res.setHeader('Content-Range', response.headers['content-range']);
-    if (response.headers['content-length']) res.setHeader('Content-Length', response.headers['content-length']);
-    res.setHeader('Content-Type', response.headers['content-type'] || 'audio/webm');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-
-    response.data.pipe(res);
+    return res.redirect(302, streamUrl);
   } catch (err) {
     console.error('[Audio Stream Proxy] Error:', err.message);
     res.status(500).send('Streaming error: ' + err.message);
