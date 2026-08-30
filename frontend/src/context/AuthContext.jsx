@@ -19,27 +19,14 @@ export function AuthProvider({ children }) {
           setUser(res.user);
           setToken(activeToken);
           connectSocket(activeToken);
-          setLoading(false);
-          return;
         } catch (err) {
           localStorage.removeItem('duocore_token');
+          setUser(null);
+          setToken(null);
         }
-      }
-
-      // Auto-create unique distinct user session for this device
-      try {
-        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-        const res = await api.register({
-          username: guestName,
-          email: `${guestName.toLowerCase()}@soundwave.local`,
-          password: 'secret_guest_pass'
-        });
-        localStorage.setItem('duocore_token', res.token);
-        setToken(res.token);
-        setUser(res.user);
-        connectSocket(res.token);
-      } catch (e) {
-        console.warn('[AuthContext] Auto session fallback:', e);
+      } else {
+        setUser(null);
+        setToken(null);
       }
       setLoading(false);
     }
@@ -69,26 +56,11 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const logout = async () => {
+  const logout = () => {
     localStorage.removeItem('duocore_token');
     disconnectSocket();
-
-    // Immediately generate a fresh distinct user profile for this device
-    try {
-      const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-      const res = await api.register({
-        username: guestName,
-        email: `${guestName.toLowerCase()}@soundwave.local`,
-        password: 'secret_guest_pass'
-      });
-      localStorage.setItem('duocore_token', res.token);
-      setToken(res.token);
-      setUser(res.user);
-      connectSocket(res.token);
-    } catch (e) {
-      setUser(null);
-      setToken(null);
-    }
+    setToken(null);
+    setUser(null);
   };
 
   const toggleSound = () => {

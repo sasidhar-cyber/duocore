@@ -106,13 +106,22 @@ const SPOTIFY_JIOSAAVN_TOP_SONGS = [
 ];
 
 // Helper to resolve videoId or search query to a live audio stream URL
-function resolveAudioStreamUrl(idOrQuery) {
-  return new Promise(async (resolve, reject) => {
-    const cached = streamUrlCache.get(idOrQuery);
-    if (cached && cached.expireAt > Date.now()) {
-      return resolve(cached.url);
-    }
+async function resolveAudioStreamUrl(idOrQuery) {
+  const cached = streamUrlCache.get(idOrQuery);
+  if (cached && cached.expireAt > Date.now()) {
+    return cached.url;
+  }
 
+  let videoId = idOrQuery;
+  if (videoId.includes('watch?v=')) {
+    videoId = videoId.split('watch?v=')[1].split('&')[0];
+  } else if (videoId.includes('youtu.be/')) {
+    videoId = videoId.split('youtu.be/')[1].split('?')[0];
+  }
+
+  // Strategy 1: yt-dlp with android player client extraction & geo-bypass
+  try {
+    const ytdlpCommand = fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp';
     let target = idOrQuery;
     if (idOrQuery.startsWith('query:')) {
       const q = idOrQuery.replace('query:', '');
@@ -121,30 +130,53 @@ function resolveAudioStreamUrl(idOrQuery) {
       target = `https://www.youtube.com/watch?v=${idOrQuery}`;
     }
 
-    const ytdlpCommand = fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp';
+    const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=android,web" --geo-bypass --no-warnings "${target}"`;
 
-    exec(`${ytdlpCommand} -g -f "ba/b" "${target}"`, { timeout: 18000 }, (err, stdout, stderr) => {
-      if (err) {
-        console.error('[Music Stream] yt-dlp resolution error:', err.message);
-        if (!idOrQuery.startsWith('query:')) {
-          return resolveAudioStreamUrl(`query:${idOrQuery} song audio`).then(resolve).catch(reject);
-        }
-        return reject(new Error('Failed to resolve audio stream'));
-      }
+    const stdout = await new Promise((resolve, reject) => {
+      exec(cmd, { timeout: 16000 }, (err, out) => {
+        if (err) return reject(err);
+        resolve(out);
+      });
+    });
 
-      const streamUrl = stdout.trim().split('\n')[0];
-      if (!streamUrl || !streamUrl.startsWith('http')) {
-        return reject(new Error('Invalid stream URL extracted'));
-      }
-
+    const streamUrl = stdout.trim().split('\n')[0];
+    if (streamUrl && streamUrl.startsWith('http')) {
       streamUrlCache.set(idOrQuery, {
         url: streamUrl,
         expireAt: Date.now() + 2 * 60 * 60 * 1000
       });
+      return streamUrl;
+    }
+  } catch (err) {
+    console.warn('[Music Stream] Strategy 1 (yt-dlp) failed:', err.message);
+  }
 
-      resolve(streamUrl);
-    });
-  });
+  // Strategy 2: Invidious Instances Audio Stream
+  const invidiousInstances = [
+    'https://invidious.nerdvpn.de',
+    'https://yt.drgnz.club',
+    'https://inv.tux.pizza',
+    'https://invidious.jing.rocks'
+  ];
+
+  for (const instance of invidiousInstances) {
+    try {
+      const res = await axios.get(`${instance}/api/v1/videos/${videoId}`, { timeout: 4000 });
+      const audioFormats = (res.data?.adaptiveFormats || []).filter((f) => f.type && f.type.includes('audio'));
+      if (audioFormats.length > 0 && audioFormats[0].url) {
+        const streamUrl = audioFormats[0].url;
+        streamUrlCache.set(idOrQuery, {
+          url: streamUrl,
+          expireAt: Date.now() + 2 * 60 * 60 * 1000
+        });
+        return streamUrl;
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+
+  throw new Error('Failed to resolve audio stream URL');
 }
 
 // 1. Advanced Search with Filters & Categories
@@ -236,7 +268,9 @@ router.get('/audio-stream/:videoId', async (req, res) => {
   try {
     const streamUrl = await resolveAudioStreamUrl(videoId);
 
-    const headers = {};
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
     if (req.headers.range) {
       headers['Range'] = req.headers.range;
     }
@@ -246,7 +280,7 @@ router.get('/audio-stream/:videoId', async (req, res) => {
       url: streamUrl,
       responseType: 'stream',
       headers,
-      timeout: 15000
+      timeout: 20000
     });
 
     res.status(response.status);
@@ -254,6 +288,7 @@ router.get('/audio-stream/:videoId', async (req, res) => {
     if (response.headers['content-length']) res.setHeader('Content-Length', response.headers['content-length']);
     res.setHeader('Content-Type', response.headers['content-type'] || 'audio/webm');
     res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
 
     response.data.pipe(res);
   } catch (err) {
