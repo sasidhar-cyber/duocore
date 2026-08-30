@@ -196,8 +196,8 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
           </div>
         )}
 
-        {/* Settings Navigation Tabs */}
-        <div className="grid grid-cols-4 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold shrink-0">
+        {/* Tabs Header */}
+        <div className="grid grid-cols-3 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold shrink-0">
           <button
             onClick={() => { setActiveTab('app'); setError(''); setMessage(''); }}
             className={`py-2 rounded-xl transition-all ${
@@ -221,14 +221,6 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             }`}
           >
             🔑 Password
-          </button>
-          <button
-            onClick={() => { setActiveTab('vault'); setError(''); setMessage(''); }}
-            className={`py-2 rounded-xl transition-all ${
-              activeTab === 'vault' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            🔒 Stealth Vault
           </button>
         </div>
 
@@ -435,57 +427,6 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             </form>
           )}
 
-          {/* TAB 4: STEALTH VAULT PIN */}
-          {activeTab === 'vault' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-2">
-                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
-                  <Shield className="w-4 h-4" />
-                  <span>How to open Secret Stealth Chat:</span>
-                </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  1. Triple-tap the <strong>Equalizer 🎚️</strong> icon on the top bar or bottom player.<br />
-                  2. Or type <strong>//chat</strong> in the song search bar.<br />
-                  3. Press <strong>Esc</strong> anytime for instant panic hide!
-                </p>
-              </div>
-
-              {/* Change Vault PIN */}
-              <form onSubmit={handleSaveVaultPin} className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
-                <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
-                  <Lock className="w-4 h-4 text-emerald-400" />
-                  <span>Stealth Vault PIN (Current: {vaultPin})</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    maxLength={6}
-                    placeholder="Enter new 4-digit PIN"
-                    value={newVaultPin}
-                    onChange={(e) => setNewVaultPin(e.target.value)}
-                    className="flex-1 glass-input rounded-xl px-3 py-2 text-center text-xs font-mono text-emerald-400"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shrink-0"
-                  >
-                    Update PIN
-                  </button>
-                </div>
-              </form>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  openSecretChat();
-                }}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black text-xs shadow-lg shadow-emerald-600/30 transition-transform active:scale-95"
-              >
-                Open Secret Vault Now 🔓
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>

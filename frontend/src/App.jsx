@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { RoomProvider, useRoom } from './context/RoomContext';
+import { RoomProvider } from './context/RoomContext';
 import { MusicProvider, useMusic } from './context/MusicContext';
 import { Navbar } from './components/Navbar';
 import { MusicHomePage } from './pages/MusicHomePage';
 import { MusicPlayerBar } from './components/MusicPlayerBar';
 import { NowPlayingModal } from './components/NowPlayingModal';
 import { LyricsModal } from './components/LyricsModal';
-import { SecretRoomModal } from './components/SecretRoomModal';
 import { QueueDrawer } from './components/QueueDrawer';
 import { PlaylistModal } from './components/PlaylistModal';
 import { StatsModal } from './components/StatsModal';
@@ -18,44 +17,16 @@ import { AuthPage } from './pages/AuthPage';
 import api from './services/api';
 
 function AppContent() {
-  const { user, register, loading } = useAuth();
-  const { refreshPartnerState } = useRoom();
-  const { isNowPlayingOpen, closeNowPlaying, playTrack, openSecretChat } = useMusic();
+  const { user, loading } = useAuth();
+  const { isNowPlayingOpen, closeNowPlaying, playTrack } = useMusic();
   const [authOpen, setAuthOpen] = useState(false);
 
-  // Check URL query parameters for 1-Click Instant Invite & Deep Links
+  // Check URL query parameters for direct song deep links
   useEffect(() => {
     const handleUrlActions = async () => {
       try {
         const params = new URLSearchParams(window.location.search);
-        const inviteCode = params.get('invite');
         const songId = params.get('song');
-        const action = params.get('action');
-
-        if (inviteCode) {
-          const cleanCode = inviteCode.toUpperCase();
-          window.history.replaceState({}, document.title, window.location.pathname);
-
-          // Auto-authenticate guest if needed
-          if (!user) {
-            try {
-              const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-              await register({
-                username: guestName,
-                email: `${guestName.toLowerCase()}@soundwave.local`,
-                password: 'secret_guest_pass'
-              });
-            } catch (e) {}
-          }
-
-          try {
-            await api.acceptInvite(cleanCode);
-            await refreshPartnerState();
-            openSecretChat();
-          } catch (err) {
-            console.warn('[Auto-Join Invite] Error:', err);
-          }
-        }
 
         if (songId) {
           api.searchMusic(songId)
@@ -66,17 +37,13 @@ function AppContent() {
             })
             .catch(() => {});
         }
-
-        if (action === 'chat') {
-          openSecretChat();
-        }
       } catch (e) {}
     };
 
     if (!loading) {
       handleUrlActions();
     }
-  }, [loading, user]);
+  }, [loading]);
 
   if (loading) {
     return (
@@ -137,9 +104,6 @@ function AppContent() {
 
       {/* Keyboard Shortcuts Help Modal */}
       <KeyboardShortcutsModal />
-
-      {/* Stealth Disguised Secret Room Modal */}
-      <SecretRoomModal />
     </div>
   );
 }

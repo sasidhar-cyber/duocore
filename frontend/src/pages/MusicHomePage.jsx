@@ -116,13 +116,6 @@ export function MusicHomePage() {
     const q = e.target.value;
     setSearchQuery(q);
 
-    // Secret Stealth Trigger: Typing //chat or //vault opens secret chat
-    if (q.trim() === '//chat' || q.trim() === '//vault' || q.trim() === '..chat') {
-      setSearchQuery('');
-      openSecretChat();
-      return;
-    }
-
     if (q.trim().length >= 2) {
       api.getSearchSuggestions(q)
         .then((res) => setSuggestions(res.suggestions || []))

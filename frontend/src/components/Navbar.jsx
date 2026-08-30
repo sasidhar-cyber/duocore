@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useRoom } from '../context/RoomContext';
 import { useMusic } from '../context/MusicContext';
 import { SettingsModal } from './SettingsModal';
 import {
@@ -18,9 +17,8 @@ import {
 } from 'lucide-react';
 
 export function Navbar({ onOpenAuth }) {
-  const { user, logout } = useAuth();
-  const { members } = useRoom();
-  const { appTitle, openSecretChat, changeTheme, activeTheme, THEMES } = useMusic();
+  const { user, logout, soundEnabled, toggleSound } = useAuth();
+  const { appTitle, isPlaying, openNowPlaying } = useMusic();
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -28,10 +26,10 @@ export function Navbar({ onOpenAuth }) {
     <>
       <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl select-none">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Stealth Logo Trigger */}
+          {/* SoundWave Logo */}
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group"
-            onClick={openSecretChat}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             title={appTitle}
           >
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 p-[1.5px] shadow-lg shadow-emerald-500/20 shrink-0 group-hover:scale-105 transition-transform">
@@ -54,19 +52,28 @@ export function Navbar({ onOpenAuth }) {
             </div>
           </div>
 
-          {/* Right Action Tools: Stealth Equalizer, Settings, Profile */}
+          {/* Right Tools: Equalizer (opens player), Sound Toggle, Settings, Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Stealth Equalizer Button (Secret Trigger) */}
+            {/* Live Audio Equalizer Indicator */}
             <button
-              onClick={openSecretChat}
+              onClick={openNowPlaying}
               className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-emerald-400 transition-colors"
-              title="Audio Equalizer & Sound Calibration"
+              title="Now Playing Equalizer"
             >
               <div className="flex items-end gap-0.5 h-3.5 w-3.5 justify-center">
-                <div className="w-0.5 h-full bg-emerald-400 rounded-full animate-pulse" />
-                <div className="w-0.5 h-2/3 bg-emerald-400 rounded-full animate-pulse delay-75" />
-                <div className="w-0.5 h-4/5 bg-emerald-400 rounded-full animate-pulse delay-150" />
+                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-full animate-pulse' : 'h-1.5'}`} />
+                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-2/3 animate-pulse delay-75' : 'h-2'}`} />
+                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-4/5 animate-pulse delay-150' : 'h-1'}`} />
               </div>
+            </button>
+
+            {/* Sound Effects Toggle */}
+            <button
+              onClick={toggleSound}
+              className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-slate-400 hover:text-white transition-all hidden sm:block"
+              title={soundEnabled ? 'Mute Sound Effects' : 'Unmute Sound Effects'}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
             {/* Settings Button */}

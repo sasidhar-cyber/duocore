@@ -11,7 +11,7 @@ const SHORTCUTS = [
   { key: 'M', desc: 'Mute / Unmute volume' },
   { key: 'L', desc: 'Open / Close Synchronized Lyrics' },
   { key: 'F', desc: 'Like / Favorite currently playing track' },
-  { key: 'Esc', desc: 'Panic Hide Secret Duo Chat' }
+  { key: 'Esc', desc: 'Close open modal / fullscreen player' }
 ];
 
 export function KeyboardShortcutsModal() {
