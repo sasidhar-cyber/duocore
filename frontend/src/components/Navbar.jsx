@@ -13,10 +13,11 @@ import {
   LogOut,
   User,
   Volume2,
-  VolumeX
+  VolumeX,
+  MessageSquareLock
 } from 'lucide-react';
 
-export function Navbar({ onOpenAuth }) {
+export function Navbar({ onOpenAuth, onOpenChat }) {
   const { user, logout, soundEnabled, toggleSound } = useAuth();
   const { appTitle, isPlaying, openNowPlaying } = useMusic();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -29,8 +30,8 @@ export function Navbar({ onOpenAuth }) {
           {/* SoundWave Logo */}
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            title={appTitle}
+            onClick={onOpenChat}
+            title={`${appTitle} (Tap for Duo Chat / PIN: 1234)`}
           >
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 p-[1.5px] shadow-lg shadow-emerald-500/20 shrink-0 group-hover:scale-105 transition-transform">
               <div className="w-full h-full bg-slate-950 rounded-[10px] sm:rounded-[14px] flex items-center justify-center text-sm sm:text-lg font-black text-emerald-400">
@@ -52,18 +53,18 @@ export function Navbar({ onOpenAuth }) {
             </div>
           </div>
 
-          {/* Right Tools: Equalizer (opens player), Sound Toggle, Settings, Profile */}
+          {/* Right Tools: Equalizer (Duo Chat trigger), Sound Toggle, Settings, Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Live Audio Equalizer Indicator */}
+            {/* Equalizer Button (Duo Chat trigger) */}
             <button
-              onClick={openNowPlaying}
+              onClick={onOpenChat}
               className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-emerald-400 transition-colors"
-              title="Now Playing Equalizer"
+              title="Duo Chat (PIN: 1234)"
             >
               <div className="flex items-end gap-0.5 h-3.5 w-3.5 justify-center">
-                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-full animate-pulse' : 'h-1.5'}`} />
-                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-2/3 animate-pulse delay-75' : 'h-2'}`} />
-                <div className={`w-0.5 bg-emerald-400 rounded-full ${isPlaying ? 'h-4/5 animate-pulse delay-150' : 'h-1'}`} />
+                <div className="w-0.5 h-full bg-emerald-400 rounded-full animate-pulse" />
+                <div className="w-0.5 h-2/3 bg-emerald-400 rounded-full animate-pulse delay-75" />
+                <div className="w-0.5 h-4/5 bg-emerald-400 rounded-full animate-pulse delay-150" />
               </div>
             </button>
 
@@ -109,6 +110,17 @@ export function Navbar({ onOpenAuth }) {
                     </div>
 
                     <div className="p-1.5 space-y-1">
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          onOpenChat();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                      >
+                        <MessageSquareLock className="w-4 h-4" />
+                        <span>Open Duo Chat (PIN: 1234)</span>
+                      </button>
+
                       <button
                         onClick={() => {
                           setProfileOpen(false);

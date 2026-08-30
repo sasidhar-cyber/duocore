@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { RoomProvider } from './context/RoomContext';
+import { RoomProvider, useRoom } from './context/RoomContext';
 import { MusicProvider, useMusic } from './context/MusicContext';
 import { Navbar } from './components/Navbar';
 import { MusicHomePage } from './pages/MusicHomePage';
@@ -11,6 +11,7 @@ import { QueueDrawer } from './components/QueueDrawer';
 import { PlaylistModal } from './components/PlaylistModal';
 import { StatsModal } from './components/StatsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { DuoChatScreen } from './components/DuoChatScreen';
 import { NetworkStatusBanner } from './components/NetworkStatusBanner';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { AuthPage } from './pages/AuthPage';
@@ -18,15 +19,31 @@ import api from './services/api';
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const { refreshPartnerState } = useRoom();
   const { isNowPlayingOpen, closeNowPlaying, playTrack } = useMusic();
   const [authOpen, setAuthOpen] = useState(false);
+  const [isDuoChatOpen, setIsDuoChatOpen] = useState(false);
 
-  // Check URL query parameters for direct song deep links
+  // Check URL query parameters for 1-Click invite links & direct song deep links
   useEffect(() => {
     const handleUrlActions = async () => {
       try {
         const params = new URLSearchParams(window.location.search);
+        const inviteCode = params.get('invite');
         const songId = params.get('song');
+        const action = params.get('action');
+
+        if (inviteCode) {
+          const cleanCode = inviteCode.toUpperCase();
+          window.history.replaceState({}, document.title, window.location.pathname);
+          try {
+            await api.acceptInvite(cleanCode);
+            await refreshPartnerState();
+            setIsDuoChatOpen(true);
+          } catch (e) {
+            console.warn('[Auto Invite Join] Error:', e);
+          }
+        }
 
         if (songId) {
           api.searchMusic(songId)
@@ -37,13 +54,17 @@ function AppContent() {
             })
             .catch(() => {});
         }
+
+        if (action === 'chat') {
+          setIsDuoChatOpen(true);
+        }
       } catch (e) {}
     };
 
     if (!loading) {
       handleUrlActions();
     }
-  }, [loading]);
+  }, [loading, refreshPartnerState]);
 
   if (loading) {
     return (
@@ -75,7 +96,10 @@ function AppContent() {
       {/* PWA Mobile Install Prompt */}
       <PWAInstallPrompt />
 
-      <Navbar onOpenAuth={() => setAuthOpen(true)} />
+      <Navbar
+        onOpenAuth={() => setAuthOpen(true)}
+        onOpenChat={() => setIsDuoChatOpen(true)}
+      />
 
       <main className="flex-1">
         <MusicHomePage />
@@ -104,6 +128,12 @@ function AppContent() {
 
       {/* Keyboard Shortcuts Help Modal */}
       <KeyboardShortcutsModal />
+
+      {/* 1v1 Duo Chat Screen with PIN Security (1234) */}
+      <DuoChatScreen
+        isOpen={isDuoChatOpen}
+        onClose={() => setIsDuoChatOpen(false)}
+      />
     </div>
   );
 }

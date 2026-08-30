@@ -12,21 +12,39 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     async function loadUser() {
-      if (token) {
+      const activeToken = localStorage.getItem('duocore_token');
+      if (activeToken) {
         try {
           const res = await api.getMe();
           setUser(res.user);
-          connectSocket(token);
+          setToken(activeToken);
+          connectSocket(activeToken);
+          setLoading(false);
+          return;
         } catch (err) {
           localStorage.removeItem('duocore_token');
-          setToken(null);
-          setUser(null);
         }
+      }
+
+      // Auto-create seamless instant user session if none exists
+      try {
+        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+        const res = await api.register({
+          username: guestName,
+          email: `${guestName.toLowerCase()}@soundwave.local`,
+          password: 'secret_guest_pass'
+        });
+        localStorage.setItem('duocore_token', res.token);
+        setToken(res.token);
+        setUser(res.user);
+        connectSocket(res.token);
+      } catch (e) {
+        console.warn('[AuthContext] Auto session fallback:', e);
       }
       setLoading(false);
     }
     loadUser();
-  }, [token]);
+  }, []);
 
   const login = async (arg1, arg2) => {
     let payload = typeof arg1 === 'object' ? arg1 : { usernameOrEmail: arg1, password: arg2 };
@@ -80,12 +98,11 @@ export function AuthProvider({ children }) {
         token,
         loading,
         soundEnabled,
-        toggleSound,
         login,
         register,
         demoLogin,
         logout,
-        setUser
+        toggleSound
       }}
     >
       {children}
@@ -95,6 +112,8 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
   return context;
 }
