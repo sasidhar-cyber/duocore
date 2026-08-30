@@ -23,17 +23,16 @@ export function RoomProvider({ children }) {
   const [activeChannel, setActiveChannel] = useState('normal'); // 'normal' | 'private'
   const [partnerTyping, setPartnerTyping] = useState({ normal: false, private: false });
 
-  // Goals
+  // Goals & Timer
   const [goals, setGoals] = useState([]);
-
-  // Active Timer Sync
   const [timerState, setTimerState] = useState(null);
 
   const currentRoomIdRef = useRef(null);
 
   // Load active squad / room state from backend
   const refreshPartnerState = useCallback(async () => {
-    if (!user) {
+    const activeToken = localStorage.getItem('duocore_token');
+    if (!activeToken) {
       setHasPartner(false);
       setHasRoom(false);
       setPartnership(null);
@@ -67,6 +66,13 @@ export function RoomProvider({ children }) {
           if (!s.connected) s.connect();
           s.emit('room:join', { roomId: res.room.id });
         }
+
+        // Fetch initial messages for this room
+        api.getRoomMessages(res.room.id, 'normal')
+          .then((msgRes) => {
+            if (msgRes.messages) setNormalMessages(msgRes.messages);
+          })
+          .catch(() => {});
       } else {
         setHasPartner(false);
         setHasRoom(false);
@@ -212,10 +218,6 @@ export function RoomProvider({ children }) {
       setPrivateMessages(updateList);
     };
 
-    const handleChallenge = (challenge) => {
-      playSound('quiz_correct');
-    };
-
     s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
     s.on('chat:partner_typing', handlePartnerTyping);
@@ -229,7 +231,6 @@ export function RoomProvider({ children }) {
     s.on('duo:partner_removed', handleDuoPartnerRemoved);
     s.on('timer:state_sync', handleTimerSync);
     s.on('chat:reaction_updated', handleReaction);
-    s.on('quiz:challenge_received', handleChallenge);
 
     return () => {
       s.off('connect', handleSocketConnect);
@@ -245,7 +246,6 @@ export function RoomProvider({ children }) {
       s.off('duo:partner_removed', handleDuoPartnerRemoved);
       s.off('timer:state_sync', handleTimerSync);
       s.off('chat:reaction_updated', handleReaction);
-      s.off('quiz:challenge_received', handleChallenge);
     };
   }, [user?.id, refreshPartnerState]);
 
@@ -285,110 +285,77 @@ export function RoomProvider({ children }) {
     return res;
   };
 
-  const sendMessage = async (text, channel = activeChannel, metadata = {}, replyToId = null) => {
+  const sendMessage = async ({ text, channel = activeChannel, metadata = {}, replyTo = null, fileUrl = null, fileType = null }) => {
     if (!roomData) return;
     const s = getSocket();
+    const payload = {
+      roomId: roomData.id,
+      text: text || '',
+      channel: channel || 'normal',
+      metadata,
+      replyTo,
+      fileUrl,
+      fileType
+    };
+
     if (s && s.connected) {
-      s.emit('chat:send_message', {
-        roomId: roomData.id,
-        text,
-        channel: channel || 'normal',
-        metadata,
-        replyToId
-      });
+      s.emit('chat:send_message', payload);
     } else {
       const res = await api.sendRoomMessage(roomData.id, {
-        text,
-        channel: channel || 'normal',
-        replyToId,
-        metadata
+        text: text || '',
+        channel_type: channel || 'normal',
+        metadata: JSON.stringify(metadata),
+        reply_to_id: replyTo?.id || null,
+        file_url: fileUrl,
+        file_type: fileType
       });
-      if (channel === 'private') {
-        setPrivateMessages((prev) => [...prev, res.data]);
-      } else {
-        setNormalMessages((prev) => [...prev, res.data]);
+      if (res.message) {
+        if (channel === 'private') {
+          setPrivateMessages((prev) => [...prev, res.message]);
+        } else {
+          setNormalMessages((prev) => [...prev, res.message]);
+        }
       }
     }
   };
 
-  const sendTyping = (isTyping, channel = activeChannel) => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('chat:typing', { roomId: roomData.id, channel: channel || activeChannel, isTyping });
-    }
-  };
-
-  const markChannelRead = async (channel = activeChannel, senderId = null) => {
+  const sendTyping = (channel = 'normal', isTyping = true) => {
     if (!roomData) return;
     const s = getSocket();
     if (s && s.connected) {
-      s.emit('chat:mark_read', { roomId: roomData.id, channel, senderId });
-    } else {
-      try {
-        await api.markMessagesRead(roomData.id, { channel, senderId });
-      } catch (e) {}
+      s.emit('chat:typing', { roomId: roomData.id, channel, isTyping });
     }
   };
 
-  const deleteMessage = async (messageId, channel = activeChannel) => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s && s.connected) {
-      s.emit('chat:delete_message', { roomId: roomData.id, messageId, channel });
-    } else {
-      try {
-        await api.deleteMessage(roomData.id, messageId);
-      } catch (e) {}
-    }
-  };
-
-  const reactToMessage = (messageId, emoji) => {
-    if (!roomData) return;
-    const s = getSocket();
-    if (s) {
-      s.emit('chat:react', { roomId: roomData.id, messageId, emoji });
-    }
-  };
-
-  const updateStudyStatus = async (statusData) => {
-    if (!roomData) return;
-    try {
-      await api.updateRoomStatus(roomData.id, statusData);
-    } catch (err) {
-      console.error('[RoomContext] Failed to update status:', err);
-    }
-  };
-
-  const value = {
-    hasPartner,
-    hasRoom,
-    partnership,
-    partner,
-    members,
-    roomData,
-    pendingInvite,
-    normalMessages,
-    privateMessages,
-    activeChannel,
-    setActiveChannel,
-    partnerTyping,
-    goals,
-    timerState,
-    refreshPartnerState,
-    createInvite,
-    cancelInvite,
-    acceptInvite,
-    removePartner,
-    sendMessage,
-    sendTyping,
-    markChannelRead,
-    deleteMessage,
-    reactToMessage,
-    updateStudyStatus
-  };
-
-  return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
+  return (
+    <RoomContext.Provider
+      value={{
+        hasPartner,
+        hasRoom,
+        partnership,
+        partner,
+        members,
+        roomData,
+        pendingInvite,
+        normalMessages,
+        privateMessages,
+        activeChannel,
+        partnerTyping,
+        goals,
+        timerState,
+        refreshPartnerState,
+        createInvite,
+        cancelInvite,
+        acceptInvite,
+        removePartner,
+        sendMessage,
+        sendTyping,
+        setActiveChannel
+      }}
+    >
+      {children}
+    </RoomContext.Provider>
+  );
 }
 
 export function useRoom() {

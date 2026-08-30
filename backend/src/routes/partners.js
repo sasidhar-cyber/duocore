@@ -1,16 +1,18 @@
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const { db } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { isUserOnline, getUserLastSeen } = require('../sockets/presenceHandler');
 
 const router = express.Router();
 
-// Get Current Active Study Room & Squad Members
+// Get Current Active Study Room & Squad Members (Auto-creates personal room if none exists)
 router.get('/current', requireAuth, (req, res) => {
   const userId = req.user.id;
+  const now = new Date().toISOString();
 
   // 1. Find user's active room from room_members & rooms
-  const memberRecord = db.prepare(`
+  let memberRecord = db.prepare(`
     SELECT rm.room_id, r.code as room_code, r.name as room_name, r.is_active as room_active, r.created_at
     FROM room_members rm
     JOIN rooms r ON rm.room_id = r.id
@@ -19,66 +21,73 @@ router.get('/current', requireAuth, (req, res) => {
     LIMIT 1
   `).get(userId);
 
-  if (memberRecord) {
-    const roomId = memberRecord.room_id;
+  // 2. If no room yet, automatically create one so user goes straight into the chat
+  if (!memberRecord) {
+    const roomId = 'room-duo-' + uuidv4().slice(0, 8);
+    let code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
 
-    // Fetch all members in this room squad
-    const rawMembers = db.prepare(`
-      SELECT u.id, u.username, u.email, u.phone_number, u.avatar_url, u.bio, u.xp, u.level, u.streak,
-             rm.role, rm.current_subject, rm.current_topic, rm.is_studying, rm.last_seen, rm.joined_at
-      FROM room_members rm
-      JOIN users u ON rm.user_id = u.id
-      WHERE rm.room_id = ?
-      ORDER BY rm.joined_at ASC
-    `).all(roomId);
+    let attempts = 0;
+    while (attempts < 10) {
+      const clash = db.prepare('SELECT id FROM rooms WHERE code = ? AND is_active = 1').get(code);
+      if (!clash) break;
+      code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
+      attempts++;
+    }
 
-    const members = rawMembers.map(m => ({
-      ...m,
-      is_online: isUserOnline(m.id),
-      last_seen: isUserOnline(m.id) ? 'now' : (getUserLastSeen(m.id) || m.last_seen)
-    }));
+    db.prepare(`
+      INSERT INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
+      VALUES (?, ?, ?, '', ?, 1, ?)
+    `).run(roomId, code, `${req.user.username}'s Duo Room`, userId, now);
 
-    const otherMembers = members.filter(m => m.id !== userId);
-    const primaryPartner = otherMembers.length > 0 ? otherMembers[0] : null;
+    db.prepare(`
+      INSERT OR IGNORE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
+      VALUES (?, ?, ?, 'creator', ?, ?, 'General', 'Duo Chat', 0, '')
+    `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
 
-    const goals = db.prepare(`
-      SELECT * FROM goals WHERE room_id = ? ORDER BY created_at ASC
-    `).all(roomId);
-
-    return res.json({
-      hasPartner: members.length > 1,
-      hasRoom: true,
-      room: {
-        id: roomId,
-        code: memberRecord.room_code,
-        name: memberRecord.room_name
-      },
-      partner: primaryPartner,
-      members,
-      memberCount: members.length,
-      goals
-    });
+    memberRecord = {
+      room_id: roomId,
+      room_code: code,
+      room_name: `${req.user.username}'s Duo Room`
+    };
   }
 
-  // 2. If no active room, check for pending invite
-  const now = new Date().toISOString();
-  const pendingInvite = db.prepare(`
-    SELECT id, code, expires_at, status, created_at
-    FROM duo_invites
-    WHERE sender_id = ? AND status = 'pending' AND expires_at > ?
-    ORDER BY created_at DESC
-    LIMIT 1
-  `).get(userId, now);
+  const roomId = memberRecord.room_id;
 
-  res.json({
-    hasPartner: false,
-    hasRoom: false,
-    partner: null,
-    members: [],
-    memberCount: 0,
-    room: null,
-    goals: [],
-    pendingInvite: pendingInvite || null
+  // Fetch all members in this room squad
+  const rawMembers = db.prepare(`
+    SELECT u.id, u.username, u.email, u.phone_number, u.avatar_url, u.bio, u.xp, u.level, u.streak,
+           rm.role, rm.current_subject, rm.current_topic, rm.is_studying, rm.last_seen, rm.joined_at
+    FROM room_members rm
+    JOIN users u ON rm.user_id = u.id
+    WHERE rm.room_id = ?
+    ORDER BY rm.joined_at ASC
+  `).all(roomId);
+
+  const members = rawMembers.map(m => ({
+    ...m,
+    is_online: isUserOnline(m.id),
+    last_seen: isUserOnline(m.id) ? 'now' : (getUserLastSeen(m.id) || m.last_seen)
+  }));
+
+  const otherMembers = members.filter(m => m.id !== userId);
+  const primaryPartner = otherMembers.length > 0 ? otherMembers[0] : null;
+
+  const goals = db.prepare(`
+    SELECT * FROM goals WHERE room_id = ? ORDER BY created_at ASC
+  `).all(roomId);
+
+  return res.json({
+    hasPartner: members.length > 1,
+    hasRoom: true,
+    room: {
+      id: roomId,
+      code: memberRecord.room_code,
+      name: memberRecord.room_name
+    },
+    partner: primaryPartner,
+    members,
+    memberCount: members.length,
+    goals
   });
 });
 
@@ -109,19 +118,7 @@ router.post('/remove', requireAuth, (req, res) => {
     db.prepare('UPDATE rooms SET is_active = 0 WHERE id = ?').run(roomId);
   }
 
-  // Notify clients via Socket.IO if available
-  const io = req.app.get('io');
-  if (io) {
-    io.to(roomId).emit('duo:partner_removed', {
-      roomId,
-      removedBy: userId
-    });
-  }
-
-  res.json({
-    message: 'Left room successfully. You can now invite friends or join a new squad anytime.',
-    roomId
-  });
+  res.json({ message: 'Disconnected from room successfully' });
 });
 
 module.exports = router;
