@@ -228,6 +228,14 @@ router.post('/accept', requireAuth, (req, res) => {
         VALUES (?, ?, ?, 'member', ?, ?, 'General', 'Duo Chat', 0, '')
       `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
     }
+
+    // Record permanent partnership in duo_partnerships table
+    if (senderId && senderId !== userId) {
+      db.prepare(`
+        INSERT OR REPLACE INTO duo_partnerships (id, user1_id, user2_id, status, established_at)
+        VALUES (?, ?, ?, 'active', ?)
+      `).run('part-' + uuidv4().slice(0, 8), senderId, userId, now);
+    }
   });
 
   tx();
