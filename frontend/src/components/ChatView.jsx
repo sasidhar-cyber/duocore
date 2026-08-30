@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRoom } from '../context/RoomContext';
 import { useMusic } from '../context/MusicContext';
@@ -39,7 +39,9 @@ import {
   ExternalLink,
   ArrowLeft,
   Share2,
-  UserPlus
+  UserPlus,
+  Sparkles,
+  Link as LinkIcon
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -112,6 +114,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     roomData,
     members,
     partner,
+    hasPartner,
     normalMessages,
     sendMessage,
     partnerTyping,
@@ -132,6 +135,13 @@ export function ChatView({ onOpenInvite, onBack }) {
   const [replyTo, setReplyTo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
+
+  // Invite & Pairing Form State
+  const [inputCode, setInputCode] = useState('');
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Search in Chat
   const [searchOpen, setSearchOpen] = useState(false);
@@ -180,6 +190,51 @@ export function ChatView({ onOpenInvite, onBack }) {
     }
   }, [roomData?.id]);
 
+  // Handle Connect to Partner Code
+  const handleJoinByCode = async (e) => {
+    e?.preventDefault();
+    if (!inputCode.trim()) return;
+
+    setJoinLoading(true);
+    setJoinError('');
+
+    try {
+      const cleanCode = inputCode.trim().toUpperCase();
+      await api.acceptInvite(cleanCode);
+      await refreshPartnerState();
+      setInputCode('');
+      try { playSound('quiz_correct'); } catch (err) {}
+    } catch (err) {
+      setJoinError(err.message || 'Invalid invite code. Please check and try again.');
+      try { playSound('quiz_wrong'); } catch (e) {}
+    } finally {
+      setJoinLoading(false);
+    }
+  };
+
+  // Copy Code & WhatsApp Link Helpers
+  const handleCopyCode = () => {
+    if (!roomData?.code) return;
+    navigator.clipboard.writeText(roomData.code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyWhatsApp = () => {
+    if (!roomData?.code) return;
+    const url = `${window.location.origin}/?invite=${roomData.code}`;
+    const text = `Hey! Join my private 1v1 Duo Chat on SoundWave here: ${url}`;
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleCopyLinkOnly = () => {
+    if (!roomData?.code) return;
+    const url = `${window.location.origin}/?invite=${roomData.code}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
   // Handle Typing Indicator
   const handleTextChange = (e) => {
     setMessageText(e.target.value);
@@ -200,7 +255,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     setMessageText('');
     setReplyTo(null);
     sendTyping('normal', false);
-    playSound('send');
+    try { playSound('send'); } catch {}
   };
 
   // Send Location
@@ -218,7 +273,7 @@ export function ChatView({ onOpenInvite, onBack }) {
           text: `📍 Shared Live Location: https://www.google.com/maps?q=${latitude},${longitude}`,
           channel: 'normal'
         });
-        playSound('send');
+        try { playSound('send'); } catch {}
       },
       () => alert('Unable to retrieve location.')
     );
@@ -233,14 +288,13 @@ export function ChatView({ onOpenInvite, onBack }) {
     formData.append('file', file);
 
     try {
-      const res = await api.uploadFile(formData);
+      const res = await api.uploadFile(roomData?.id, formData);
       sendMessage({
         text: file.type.startsWith('image/') ? '📷 Photo' : '📎 Attachment',
         channel: 'normal',
-        fileUrl: res.fileUrl,
-        fileType: file.type
+        metadata: { fileUrl: res.fileUrl, fileType: file.type }
       });
-      playSound('send');
+      try { playSound('send'); } catch {}
     } catch (err) {
       alert('Failed to upload file.');
     }
@@ -263,26 +317,28 @@ export function ChatView({ onOpenInvite, onBack }) {
         formData.append('file', audioBlob, 'voicenote.webm');
 
         try {
-          const res = await api.uploadFile(formData);
+          const res = await api.uploadFile(roomData?.id, formData);
           sendMessage({
             text: '🎤 Voice Note',
             channel: 'normal',
-            fileUrl: res.fileUrl,
-            fileType: 'audio/webm'
+            metadata: { fileUrl: res.fileUrl, fileType: 'audio/webm' }
           });
-          playSound('send');
+          try { playSound('send'); } catch {}
         } catch (err) {
-          console.warn('Voice upload failed:', err);
+          alert('Failed to send voice note.');
         }
+
         stream.getTracks().forEach((t) => t.stop());
       };
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
       setRecordingSeconds(0);
-      timerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
     } catch (err) {
-      alert('Microphone access denied.');
+      alert('Microphone access denied or unavailable.');
     }
   };
 
@@ -294,15 +350,21 @@ export function ChatView({ onOpenInvite, onBack }) {
     }
   };
 
-  // Star / Pin Actions
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerRef.current);
+    }
+  };
+
+  // Star / Pin / Delete Message
   const handleToggleStar = async (msg) => {
     if (!roomData?.id) return;
     try {
-      if (msg.is_starred) {
-        await api.unstarMessage(roomData.id, msg.id);
-      } else {
-        await api.starMessage(roomData.id, msg.id);
-      }
+      if (msg.is_starred) await api.unstarMessage(roomData.id, msg.id);
+      else await api.starMessage(roomData.id, msg.id);
       refreshPartnerState();
     } catch {}
   };
@@ -310,13 +372,10 @@ export function ChatView({ onOpenInvite, onBack }) {
   const handleTogglePin = async (msg) => {
     if (!roomData?.id) return;
     try {
-      if (msg.is_pinned) {
-        await api.unpinMessage(roomData.id, msg.id);
-      } else {
-        await api.pinMessage(roomData.id, msg.id);
-      }
-      refreshPartnerState();
-      api.getPinnedMessages(roomData.id).then((res) => setPinnedList(res.pinned || []));
+      if (msg.is_pinned) await api.unpinMessage(roomData.id, msg.id);
+      else await api.pinMessage(roomData.id, msg.id);
+      const res = await api.getPinnedMessages(roomData.id);
+      setPinnedList(res.pinned || []);
     } catch {}
   };
 
@@ -351,10 +410,11 @@ export function ChatView({ onOpenInvite, onBack }) {
 
   // Filter messages based on chat search query
   const displayedMessages = useMemo(() => {
-    if (!searchQuery.trim()) return normalMessages;
-    return normalMessages.filter((m) =>
-      m.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    const list = normalMessages || [];
+    if (!searchQuery.trim()) return list;
+    return list.filter((m) =>
+      m?.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m?.username?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [normalMessages, searchQuery]);
 
@@ -364,7 +424,7 @@ export function ChatView({ onOpenInvite, onBack }) {
       try {
         await api.leaveRoom(roomData?.id);
         await refreshPartnerState();
-        playSound('quiz_wrong');
+        try { playSound('quiz_wrong'); } catch {}
       } catch (err) {
         await refreshPartnerState();
       }
@@ -395,27 +455,30 @@ export function ChatView({ onOpenInvite, onBack }) {
           <div className="relative shrink-0">
             <img
               src={partnerAvatar}
-              alt={otherPartner.username}
+              alt={otherPartner?.username || 'Partner'}
               className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl object-cover ring-2 ring-emerald-500/40"
             />
             <div
               className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
-                otherPartner.is_online ? 'bg-emerald-400' : 'bg-slate-600'
+                otherPartner?.is_online ? 'bg-emerald-400' : 'bg-slate-600'
               }`}
             />
           </div>
 
           <div className="min-w-0">
             <h4 className="text-sm sm:text-base font-black text-white truncate flex items-center gap-2">
-              <span>{otherPartner.username}</span>
+              <span>{otherPartner?.username || 'Duo Partner'}</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                {roomData?.code || 'DUO-ROOM'}
+              </span>
             </h4>
             <p className="text-[11px] font-mono truncate">
               {isPartnerTyping ? (
                 <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
-              ) : otherPartner.is_online ? (
+              ) : otherPartner?.is_online ? (
                 <span className="text-emerald-400 font-medium">Online</span>
               ) : (
-                <span className="text-slate-400">{formatLastSeen(otherPartner.last_seen)}</span>
+                <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
               )}
             </p>
           </div>
@@ -483,14 +546,13 @@ export function ChatView({ onOpenInvite, onBack }) {
 
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(roomData?.code || '');
-                    alert(`Room Code ${roomData?.code} copied!`);
+                    handleCopyCode();
                     setMenuOpen(false);
                   }}
                   className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
                 >
                   <Copy className="w-4 h-4 text-emerald-400" />
-                  <span>Copy Duo Code</span>
+                  <span>Copy Duo Code ({roomData?.code})</span>
                 </button>
 
                 <div className="h-px bg-slate-800 my-1" />
@@ -545,187 +607,247 @@ export function ChatView({ onOpenInvite, onBack }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 2. CHAT MESSAGE STREAM                                                    */}
+      {/* 2. CHAT STREAM OR INVITE & PAIR DASHBOARD                                  */}
       {/* ========================================================================= */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
-        {displayedMessages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 space-y-2 select-none">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl text-emerald-400">
-              💬
+        {/* 🌟 1-CLICK DUO INVITATION & PAIRING CARD */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-slate-900/90 border border-emerald-500/30 shadow-xl space-y-4 max-w-lg mx-auto mb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-emerald-400 font-extrabold text-xs tracking-wider uppercase">
+              <Sparkles className="w-4 h-4" />
+              <span>Duo 1v1 Invite & Connect</span>
             </div>
-            <h4 className="text-sm font-bold text-slate-300">Connected with {otherPartner.username}</h4>
-            <p className="text-xs text-slate-500 max-w-xs">
-              Say hello! Send text messages, voice notes, photos, or start a call.
-            </p>
+            <span className="text-[10px] font-mono text-slate-400">STATUS: {hasPartner ? 'PAIRED ✅' : 'WAITING ⏳'}</span>
           </div>
-        ) : (
-          displayedMessages.map((msg, idx) => {
-            const isMe = msg.sender_id === user?.id;
 
-            let meta = {};
-            if (msg.metadata) {
-              if (typeof msg.metadata === 'object') {
-                meta = msg.metadata;
-              } else if (typeof msg.metadata === 'string') {
-                try { meta = JSON.parse(msg.metadata); } catch (e) { meta = {}; }
-              }
-            }
+          {/* Your Invite Code Box */}
+          <div className="p-3.5 rounded-2xl bg-black/50 border border-emerald-500/40 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-mono text-slate-400 uppercase font-bold block">YOUR INVITE CODE</span>
+              <span className="text-lg sm:text-xl font-black text-emerald-300 font-mono tracking-widest">
+                {roomData?.code || 'DUO-ROOM'}
+              </span>
+            </div>
 
-            return (
-              <div
-                key={msg.id || idx}
-                className={`flex items-end gap-2 group ${isMe ? 'justify-end' : 'justify-start'}`}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleCopyCode}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition-all shadow-sm"
               >
-                {!isMe && (
-                  <img
-                    src={partnerAvatar}
-                    alt={msg.username}
-                    className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1"
-                  />
+                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedCode ? 'Copied!' : 'Copy Code'}</span>
+              </button>
+
+              <button
+                onClick={handleCopyLinkOnly}
+                className="px-3 py-2 rounded-xl bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900/80 text-xs font-bold text-cyan-300 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Copy Direct Invite Link"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5 text-cyan-400" /> : <LinkIcon className="w-3.5 h-3.5" />}
+                <span>{copiedLink ? 'Link Copied!' : 'Copy Link'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* WhatsApp Share Button */}
+          <button
+            onClick={handleCopyWhatsApp}
+            className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform"
+          >
+            <Share2 className="w-4 h-4" />
+            <span>Share Invite on WhatsApp 📲</span>
+          </button>
+
+          {/* Connect to Friend's Code Form */}
+          <form onSubmit={handleJoinByCode} className="pt-2 border-t border-slate-800 space-y-2">
+            <span className="text-[10px] font-mono text-slate-400 uppercase font-bold block">OR CONNECT TO FRIEND'S CODE</span>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Enter Friend's Code (e.g. DUO-123)"
+                value={inputCode}
+                onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                className="flex-1 glass-input rounded-xl px-3 py-2 text-xs font-mono tracking-wider text-emerald-400 uppercase placeholder:normal-case placeholder:text-slate-600"
+              />
+              <button
+                type="submit"
+                disabled={joinLoading || !inputCode.trim()}
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 transition-transform active:scale-95"
+              >
+                {joinLoading ? 'Connecting...' : 'Connect ⚡'}
+              </button>
+            </div>
+            {joinError && <p className="text-[11px] text-red-400 font-bold">{joinError}</p>}
+          </form>
+        </div>
+
+        {/* Message Stream */}
+        {displayedMessages.map((msg, idx) => {
+          const isMe = msg.sender_id === user?.id;
+
+          let meta = {};
+          if (msg.metadata) {
+            if (typeof msg.metadata === 'object') {
+              meta = msg.metadata;
+            } else if (typeof msg.metadata === 'string') {
+              try { meta = JSON.parse(msg.metadata); } catch (e) { meta = {}; }
+            }
+          }
+
+          return (
+            <div
+              key={msg.id || idx}
+              className={`flex items-end gap-2 group ${isMe ? 'justify-end' : 'justify-start'}`}
+            >
+              {!isMe && (
+                <img
+                  src={partnerAvatar}
+                  alt={msg.username}
+                  className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1"
+                />
+              )}
+
+              <div
+                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
+                  isMe
+                    ? `${currentThemeObj.bubbleMe} text-white rounded-br-none`
+                    : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none`
+                }`}
+              >
+                {/* Reply Quote Preview */}
+                {msg.replyTo && (
+                  <div className="p-2 rounded-xl bg-black/20 border-l-2 border-emerald-300 text-xs text-slate-200 mb-1">
+                    <span className="font-bold text-[10px] block opacity-80">{msg.replyTo.username}</span>
+                    <p className="truncate text-[11px]">{msg.replyTo.text}</p>
+                  </div>
                 )}
 
-                <div
-                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
-                    isMe
-                      ? `${currentThemeObj.bubbleMe} text-white rounded-br-none`
-                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none`
-                  }`}
-                >
-                  {/* Reply Quote Preview */}
-                  {msg.replyTo && (
-                    <div className="p-2 rounded-xl bg-black/20 border-l-2 border-emerald-300 text-xs text-slate-200 mb-1">
-                      <span className="font-bold text-[10px] block opacity-80">{msg.replyTo.username}</span>
-                      <p className="truncate text-[11px]">{msg.replyTo.text}</p>
-                    </div>
-                  )}
-
-                  {/* 🎵 SHARED MUSIC CARD (Music ↔ Duo Integration) */}
-                  {meta?.song && (
-                    <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={meta.song.thumbnail}
-                          alt={meta.song.title}
-                          className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
-                            SOUNDWAVE TRACK
-                          </span>
-                          <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
-                          <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          playTrack(meta.song);
-                          openNowPlaying();
-                        }}
-                        className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
-                      >
-                        <Play className="w-4 h-4 fill-current" />
-                        <span>Play on SoundWave</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Photo / Image */}
-                  {msg.fileUrl && msg.fileType?.startsWith('image/') && (
-                    <div className="rounded-xl overflow-hidden max-h-72">
+                {/* 🎵 SHARED MUSIC CARD */}
+                {meta?.song && (
+                  <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
+                    <div className="flex items-center gap-3">
                       <img
-                        src={msg.fileUrl}
-                        alt="Photo"
-                        className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
-                        onClick={() => window.open(msg.fileUrl, '_blank')}
+                        src={meta.song.thumbnail}
+                        alt={meta.song.title}
+                        className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
                       />
+                      <div className="min-w-0">
+                        <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                          SOUNDWAVE TRACK
+                        </span>
+                        <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
+                        <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
+                      </div>
                     </div>
-                  )}
 
-                  {/* Voice Note Player */}
-                  {msg.fileUrl && msg.fileType?.startsWith('audio/') && (
-                    <AudioMemoPlayer fileUrl={msg.fileUrl} />
-                  )}
-
-                  {/* Message Text */}
-                  {msg.text && !meta?.song && (
-                    <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
-                      {msg.text.startsWith('📍 Shared Live Location:') ? (
-                        <a
-                          href={msg.text.replace('📍 Shared Live Location: ', '')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline text-cyan-300 font-bold flex items-center gap-1"
-                        >
-                          <MapPin className="w-4 h-4" />
-                          <span>View Live Google Maps Location</span>
-                        </a>
-                      ) : (
-                        msg.text
-                      )}
-                    </p>
-                  )}
-
-                  {/* Timestamp & WhatsApp Blue Ticks & Star indicator */}
-                  <div className="flex items-center justify-end gap-1 text-[10px] opacity-75 font-mono pt-0.5">
-                    {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
-                    <span>
-                      {msg.created_at
-                        ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : ''}
-                    </span>
-                    {isMe && (
-                      <span title={msg.status === 'read' ? 'Read' : 'Delivered'}>
-                        {msg.status === 'read' ? (
-                          <CheckCheck className="w-3.5 h-3.5 text-cyan-200 stroke-[2.5]" />
-                        ) : (
-                          <CheckCheck className="w-3.5 h-3.5 text-white/80" />
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Context Hover Actions (Reply, Star, Pin, Delete) */}
-                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
-                  <button
-                    onClick={() => setReplyTo(msg)}
-                    className="p-1 text-slate-400 hover:text-white"
-                    title="Reply"
-                  >
-                    <Reply className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    onClick={() => handleToggleStar(msg)}
-                    className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
-                    title="Star message"
-                  >
-                    <Star className="w-3 h-3" />
-                  </button>
-
-                  <button
-                    onClick={() => handleTogglePin(msg)}
-                    className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
-                    title="Pin message"
-                  >
-                    <Pin className="w-3 h-3" />
-                  </button>
-
-                  {isMe && (
                     <button
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1 text-slate-400 hover:text-red-400"
-                      title="Delete message"
+                      onClick={() => {
+                        playTrack(meta.song);
+                        openNowPlaying();
+                      }}
+                      className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Play on SoundWave</span>
                     </button>
+                  </div>
+                )}
+
+                {/* Photo / Image */}
+                {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
+                  <div className="rounded-xl overflow-hidden max-h-72">
+                    <img
+                      src={meta.fileUrl}
+                      alt="Photo"
+                      className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                      onClick={() => window.open(meta.fileUrl, '_blank')}
+                    />
+                  </div>
+                )}
+
+                {/* Voice Note Player */}
+                {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
+                  <AudioMemoPlayer fileUrl={meta.fileUrl} />
+                )}
+
+                {/* Message Text */}
+                {msg.text && !meta?.song && (
+                  <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
+                    {msg.text.startsWith('📍 Shared Live Location:') ? (
+                      <a
+                        href={msg.text.replace('📍 Shared Live Location: ', '')}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline text-cyan-300 font-bold flex items-center gap-1"
+                      >
+                        <MapPin className="w-4 h-4" />
+                        <span>View Live Google Maps Location</span>
+                      </a>
+                    ) : (
+                      msg.text
+                    )}
+                  </p>
+                )}
+
+                {/* Timestamp & Star */}
+                <div className="flex items-center justify-end gap-1 text-[10px] opacity-75 font-mono pt-0.5">
+                  {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
+                  <span>
+                    {msg.created_at
+                      ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : ''}
+                  </span>
+                  {isMe && (
+                    <span title={msg.status === 'read' ? 'Read' : 'Delivered'}>
+                      {msg.status === 'read' ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-cyan-200 stroke-[2.5]" />
+                      ) : (
+                        <CheckCheck className="w-3.5 h-3.5 text-white/80" />
+                      )}
+                    </span>
                   )}
                 </div>
               </div>
-            );
-          })
-        )}
+
+              {/* Context Hover Actions (Reply, Star, Pin, Delete) */}
+              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
+                <button
+                  onClick={() => setReplyTo(msg)}
+                  className="p-1 text-slate-400 hover:text-white"
+                  title="Reply"
+                >
+                  <Reply className="w-3 h-3" />
+                </button>
+
+                <button
+                  onClick={() => handleToggleStar(msg)}
+                  className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
+                  title="Star message"
+                >
+                  <Star className="w-3 h-3" />
+                </button>
+
+                <button
+                  onClick={() => handleTogglePin(msg)}
+                  className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
+                  title="Pin message"
+                >
+                  <Pin className="w-3 h-3" />
+                </button>
+
+                {isMe && (
+                  <button
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className="p-1 text-slate-400 hover:text-red-400"
+                    title="Delete message"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
@@ -775,48 +897,61 @@ export function ChatView({ onOpenInvite, onBack }) {
 
         <button
           onClick={() => setLocationConfirmOpen(true)}
-          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-400 transition-all active:scale-95 shrink-0"
-          title="Share Location"
+          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0 hidden sm:block"
+          title="Share Live GPS Location"
         >
           <MapPin className="w-4 h-4" />
         </button>
 
-        <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
-          <input
-            type="text"
-            placeholder={isRecording ? `Recording... (${recordingSeconds}s)` : "Type a message..."}
-            disabled={isRecording}
-            value={messageText}
-            onChange={handleTextChange}
-            className="w-full glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none border border-slate-800 focus:border-emerald-500/50"
-          />
+        {isRecording ? (
+          <div className="flex-1 flex items-center justify-between bg-red-950/60 border border-red-500/40 rounded-2xl px-4 py-2 animate-pulse">
+            <div className="flex items-center gap-2 text-red-400 font-mono text-xs font-bold">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+              <span>Recording Voice Note: {recordingSeconds}s</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={cancelRecording}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={stopRecording}
+                className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black"
+              >
+                Send 🎙️
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
+            <input
+              type="text"
+              placeholder="Type a message or paste a link..."
+              value={messageText}
+              onChange={handleTextChange}
+              className="flex-1 glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-emerald-500"
+            />
 
-          {messageText.trim() ? (
-            <button
-              type="submit"
-              className="p-2.5 sm:px-4 sm:py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/30 transition-transform active:scale-95 shrink-0"
-            >
-              <Send className="w-4 h-4" />
-              <span className="hidden sm:inline">Send</span>
-            </button>
-          ) : (
             <button
               type="button"
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onTouchStart={startRecording}
-              onTouchEnd={stopRecording}
-              className={`p-2.5 rounded-2xl font-bold transition-all shrink-0 active:scale-95 ${
-                isRecording
-                  ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/50'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400'
-              }`}
+              onClick={startRecording}
+              className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
               title="Hold to Record Voice Note"
             >
               <Mic className="w-4 h-4" />
             </button>
-          )}
-        </form>
+
+            <button
+              type="submit"
+              disabled={!messageText.trim()}
+              className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:bg-emerald-500 text-slate-950 font-black transition-all shadow-md shadow-emerald-500/30 active:scale-95 shrink-0"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        )}
       </div>
 
       {/* Location Sharing Confirmation Modal */}
@@ -898,14 +1033,14 @@ export function ChatView({ onOpenInvite, onBack }) {
                 <span>Media, Links & Docs</span>
               </h3>
               <button onClick={() => setMediaGalleryOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="space-y-4 flex-1">
               <div>
-                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">PHOTOS & IMAGES ({mediaData.photos.length})</span>
-                {mediaData.photos.length === 0 ? (
+                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">PHOTOS & IMAGES ({mediaData.photos?.length || 0})</span>
+                {(!mediaData.photos || mediaData.photos.length === 0) ? (
                   <p className="text-xs text-slate-600">No photos shared yet.</p>
                 ) : (
                   <div className="grid grid-cols-3 gap-2">
@@ -923,19 +1058,23 @@ export function ChatView({ onOpenInvite, onBack }) {
               </div>
 
               <div>
-                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">DOCUMENTS ({mediaData.documents.length})</span>
-                {mediaData.documents.map((d) => (
-                  <a
-                    key={d.id}
-                    href={d.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs text-slate-300 hover:text-white mb-2"
-                  >
-                    <span className="truncate">{d.fileName}</span>
-                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  </a>
-                ))}
+                <span className="text-[10px] font-mono text-slate-500 uppercase font-bold block mb-2">DOCUMENTS ({mediaData.documents?.length || 0})</span>
+                {(!mediaData.documents || mediaData.documents.length === 0) ? (
+                  <p className="text-xs text-slate-600">No documents shared yet.</p>
+                ) : (
+                  mediaData.documents.map((d) => (
+                    <a
+                      key={d.id}
+                      href={d.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs text-slate-300 hover:text-white mb-2"
+                    >
+                      <span className="truncate">{d.fileName}</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    </a>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -980,8 +1119,8 @@ export function ChatView({ onOpenInvite, onBack }) {
         <VideoCallModal
           isOpen={videoCallOpen}
           onClose={() => setVideoCallOpen(false)}
-          partnerId={otherPartner.id}
-          partnerName={otherPartner.username}
+          partnerId={otherPartner?.id || 'partner-1'}
+          partnerName={otherPartner?.username || 'Duo Partner'}
         />
       )}
 
@@ -989,8 +1128,8 @@ export function ChatView({ onOpenInvite, onBack }) {
         <AudioCallModal
           isOpen={audioCallOpen}
           onClose={() => setAudioCallOpen(false)}
-          partnerId={otherPartner.id}
-          partnerName={otherPartner.username}
+          partnerId={otherPartner?.id || 'partner-1'}
+          partnerName={otherPartner?.username || 'Duo Partner'}
         />
       )}
 
@@ -1014,14 +1153,13 @@ export function ChatView({ onOpenInvite, onBack }) {
             const formData = new FormData();
             formData.append('file', blob, 'camera_capture.jpg');
             try {
-              const res = await api.uploadFile(formData);
+              const res = await api.uploadFile(roomData?.id, formData);
               sendMessage({
                 text: '📷 Live Camera Photo',
                 channel: 'normal',
-                fileUrl: res.fileUrl,
-                fileType: 'image/jpeg'
+                metadata: { fileUrl: res.fileUrl, fileType: 'image/jpeg' }
               });
-              playSound('send');
+              try { playSound('send'); } catch {}
             } catch (err) {
               alert('Failed to send photo.');
             }
