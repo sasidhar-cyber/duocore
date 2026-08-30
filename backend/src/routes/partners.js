@@ -28,14 +28,14 @@ router.get('/current', requireAuth, (req, res) => {
 
     let attempts = 0;
     while (attempts < 10) {
-      const clash = db.prepare('SELECT id FROM rooms WHERE code = ? AND is_active = 1').get(code);
+      const clash = db.prepare('SELECT id FROM rooms WHERE code = ?').get(code);
       if (!clash) break;
       code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
       attempts++;
     }
 
     db.prepare(`
-      INSERT INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
+      INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
       VALUES (?, ?, ?, '', ?, 1, ?)
     `).run(roomId, code, `${req.user.username}'s Duo Room`, userId, now);
 

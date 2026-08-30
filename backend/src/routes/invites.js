@@ -174,8 +174,8 @@ router.post('/accept', requireAuth, (req, res) => {
   }
   const now = new Date().toISOString();
 
-  // 1. Look for existing active room with this code
-  let room = db.prepare('SELECT * FROM rooms WHERE (code = ? OR code = ?) AND is_active = 1').get(cleanCode, cleanCode.replace('DUO-', ''));
+  // 1. Look for existing room with this code (active or inactive)
+  let room = db.prepare('SELECT * FROM rooms WHERE (code = ? OR code = ?)').get(cleanCode, cleanCode.replace('DUO-', ''));
   let senderId = null;
   let senderUsername = 'Partner';
 
@@ -197,6 +197,8 @@ router.post('/accept', requireAuth, (req, res) => {
     senderUsername = invite.sender_username;
   } else {
     senderId = room.created_by;
+    // Reactivate room
+    db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(room.id);
   }
 
   let roomId;
@@ -206,7 +208,7 @@ router.post('/accept', requireAuth, (req, res) => {
       const roomName = `${senderUsername}'s Duo Room`;
 
       db.prepare(`
-        INSERT INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
+        INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
         VALUES (?, ?, ?, '', ?, 1, ?)
       `).run(roomId, cleanCode, roomName, senderId, now);
 
@@ -230,13 +232,15 @@ router.post('/accept', requireAuth, (req, res) => {
     }
 
     // Clean up any prior solo rooms that current user was in
-    db.prepare(`
-      DELETE FROM room_members 
-      WHERE user_id = ? AND room_id != ? AND room_id IN (
-        SELECT r.id FROM rooms r 
-        WHERE (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) <= 1
-      )
-    `).run(userId, roomId);
+    try {
+      db.prepare(`
+        DELETE FROM room_members 
+        WHERE user_id = ? AND room_id != ? AND room_id IN (
+          SELECT r.id FROM rooms r 
+          WHERE (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) <= 1
+        )
+      `).run(userId, roomId);
+    } catch (err) {}
 
     // Record permanent partnership in duo_partnerships table
     if (senderId && senderId !== userId) {
