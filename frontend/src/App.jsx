@@ -38,9 +38,22 @@ function AppContent() {
         const action = params.get('action');
 
         if (inviteCode) {
-          const cleanCode = inviteCode.toUpperCase();
+          let cleanCode = inviteCode.toUpperCase();
+          if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
+            cleanCode = `DUO-${cleanCode}`;
+          }
           window.history.replaceState({}, document.title, window.location.pathname);
           try {
+            let activeToken = localStorage.getItem('duocore_token');
+            if (!activeToken) {
+              const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+              const regRes = await api.register({
+                username: guestName,
+                email: `${guestName.toLowerCase()}@soundwave.local`,
+                password: 'guest_secure_pass'
+              });
+              localStorage.setItem('duocore_token', regRes.token);
+            }
             await api.acceptInvite(cleanCode);
             await refreshPartnerState();
             setActiveTab('chat');

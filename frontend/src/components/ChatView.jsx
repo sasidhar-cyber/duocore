@@ -199,7 +199,23 @@ export function ChatView({ onOpenInvite, onBack }) {
     setJoinError('');
 
     try {
-      const cleanCode = inputCode.trim().toUpperCase();
+      let cleanCode = inputCode.trim().toUpperCase();
+      if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
+        cleanCode = `DUO-${cleanCode}`;
+      }
+
+      // Ensure session exists before connecting
+      let token = localStorage.getItem('duocore_token');
+      if (!token) {
+        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+        const regRes = await api.register({
+          username: guestName,
+          email: `${guestName.toLowerCase()}@soundwave.local`,
+          password: 'guest_secure_pass'
+        });
+        localStorage.setItem('duocore_token', regRes.token);
+      }
+
       await api.acceptInvite(cleanCode);
       await refreshPartnerState();
       setInputCode('');
