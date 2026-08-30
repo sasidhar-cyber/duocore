@@ -41,7 +41,7 @@ const GENRE_TAGS = [
 const LANGUAGES = ['All Languages', 'Telugu', 'Hindi', 'English', 'Tamil'];
 const YEARS = ['All Years', '2024', '2023', '2022', '2020s', '2010s'];
 
-export function MusicHomePage() {
+export function MusicHomePage({ onOpenPinPrompt }) {
   const {
     currentTrack,
     isPlaying,
@@ -115,6 +115,13 @@ export function MusicHomePage() {
   const handleSearchChange = (e) => {
     const q = e.target.value;
     setSearchQuery(q);
+
+    // Stealth Command Interceptor
+    if (q.trim() === '//chat' || q.trim() === '//vault' || q.trim() === '//duo') {
+      setSearchQuery('');
+      if (onOpenPinPrompt) onOpenPinPrompt();
+      return;
+    }
 
     if (q.trim().length >= 2) {
       api.getSearchSuggestions(q)

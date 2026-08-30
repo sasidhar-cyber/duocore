@@ -13,7 +13,7 @@ import { StatsModal } from './components/StatsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { ChatView } from './components/ChatView';
 import { InviteModal } from './components/InviteModal';
-import { BottomNav } from './components/BottomNav';
+import { PinUnlockModal } from './components/PinUnlockModal';
 import { NetworkStatusBanner } from './components/NetworkStatusBanner';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { AuthPage } from './pages/AuthPage';
@@ -25,6 +25,7 @@ function AppContent() {
   const { isNowPlayingOpen, closeNowPlaying, playTrack, currentTrack } = useMusic();
   const [authOpen, setAuthOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('music'); // 'music' | 'chat'
+  const [isPinPromptOpen, setIsPinPromptOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   // Check URL query parameters for 1-Click invite links & direct song deep links
@@ -59,7 +60,7 @@ function AppContent() {
         }
 
         if (action === 'chat') {
-          setActiveTab('chat');
+          setIsPinPromptOpen(true);
         }
       } catch (e) {}
     };
@@ -68,6 +69,18 @@ function AppContent() {
       handleUrlActions();
     }
   }, [loading, refreshPartnerState]);
+
+  // Global Keyboard Panic / Back to Music key (Esc)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (isPinPromptOpen) setIsPinPromptOpen(false);
+        if (activeTab === 'chat') setActiveTab('music');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, isPinPromptOpen]);
 
   if (loading) {
     return (
@@ -91,6 +104,31 @@ function AppContent() {
     return <AuthPage onAuthenticated={() => setAuthOpen(false)} />;
   }
 
+  // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT
+  if (activeTab === 'chat') {
+    return (
+      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-1 sm:p-4 select-none relative overflow-hidden">
+        <NetworkStatusBanner />
+
+        <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">
+          <ChatView
+            onBack={() => setActiveTab('music')}
+            onOpenInvite={() => setInviteModalOpen(true)}
+          />
+        </div>
+
+        <InviteModal
+          isOpen={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
+        />
+
+        {/* Global sticky player if audio is active */}
+        {currentTrack && <MusicPlayerBar />}
+      </div>
+    );
+  }
+
+  // 🎵 MUSIC TAB: 100% INNOCENT PURE MUSIC STREAMING HOME
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-white relative">
       {/* Offline / Online Network Indicator */}
@@ -99,34 +137,18 @@ function AppContent() {
       {/* PWA Mobile Install Prompt */}
       <PWAInstallPrompt />
 
-      {/* Top Navbar */}
+      {/* Top Navbar with Stealth Triple-Tap Logo Trigger */}
       <Navbar
         onOpenAuth={() => setAuthOpen(true)}
-        onOpenChat={() => setActiveTab('chat')}
+        onOpenPinPrompt={() => setIsPinPromptOpen(true)}
       />
 
-      {/* Main View Area: Switches seamlessly between Music and Chat */}
-      <main className="flex-1 flex flex-col min-h-0 pb-16">
-        {activeTab === 'chat' ? (
-          <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto p-1 sm:p-4 flex flex-col">
-            <ChatView
-              onBack={() => setActiveTab('music')}
-              onOpenInvite={() => setInviteModalOpen(true)}
-            />
-          </div>
-        ) : (
-          <MusicHomePage />
-        )}
+      <main className="flex-1 pb-20">
+        <MusicHomePage onOpenPinPrompt={() => setIsPinPromptOpen(true)} />
       </main>
 
-      {/* Global Sticky Music Player */}
+      {/* Global Bottom Sticky Music Player */}
       <MusicPlayerBar />
-
-      {/* Bottom Navigation Bar */}
-      <BottomNav
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
 
       {/* Full Screen Now Playing View */}
       <NowPlayingModal
@@ -149,10 +171,14 @@ function AppContent() {
       {/* Keyboard Shortcuts Help Modal */}
       <KeyboardShortcutsModal />
 
-      {/* Invite Modal */}
-      <InviteModal
-        isOpen={inviteModalOpen}
-        onClose={() => setInviteModalOpen(false)}
+      {/* Stealth 4-Digit PIN Unlock Modal */}
+      <PinUnlockModal
+        isOpen={isPinPromptOpen}
+        onClose={() => setIsPinPromptOpen(false)}
+        onUnlockSuccess={() => {
+          setIsPinPromptOpen(false);
+          setActiveTab('chat');
+        }}
       />
     </div>
   );

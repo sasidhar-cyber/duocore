@@ -197,14 +197,14 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
         )}
 
         {/* Tabs Header */}
-        <div className="grid grid-cols-3 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold shrink-0">
+        <div className="grid grid-cols-4 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[10px] sm:text-[11px] font-bold shrink-0">
           <button
             onClick={() => { setActiveTab('app'); setError(''); setMessage(''); }}
             className={`py-2 rounded-xl transition-all ${
               activeTab === 'app' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
             }`}
           >
-            🎨 App & Theme
+            🎨 Theme
           </button>
           <button
             onClick={() => { setActiveTab('account'); setError(''); setMessage(''); }}
@@ -220,7 +220,15 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
               activeTab === 'security' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
             }`}
           >
-            🔑 Password
+            🔑 Pass
+          </button>
+          <button
+            onClick={() => { setActiveTab('vault'); setError(''); setMessage(''); }}
+            className={`py-2 rounded-xl transition-all ${
+              activeTab === 'vault' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            🔒 Stealth
           </button>
         </div>
 
@@ -425,6 +433,64 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                 {loading ? 'Changing Password...' : 'Update Password 🔑'}
               </button>
             </form>
+          )}
+
+          {/* TAB 4: STEALTH VAULT PIN */}
+          {activeTab === 'vault' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-2">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                  <Shield className="w-4 h-4" />
+                  <span>How to open Stealth 1v1 Duo Chat:</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  1. <strong>Triple-tap (3 clicks)</strong> on the <strong>🎵 SoundWave Logo</strong> in the top-left.<br />
+                  2. Or type <strong>//chat</strong> in the song search bar.<br />
+                  3. Enter your 4-digit PIN.<br />
+                  4. Press <strong>Esc</strong> anytime for instant panic hide!
+                </p>
+              </div>
+
+              {/* Change Vault PIN */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newVaultPin.trim() || newVaultPin.trim().length !== 4) {
+                    setError('PIN must be exactly 4 digits (e.g. 1234)');
+                    return;
+                  }
+                  localStorage.setItem('soundwave_vault_pin', newVaultPin.trim());
+                  localStorage.setItem('duocore_vault_pin', newVaultPin.trim());
+                  setVaultPin(newVaultPin.trim());
+                  setNewVaultPin('');
+                  setMessage(`Stealth PIN updated to "${newVaultPin.trim()}"!`);
+                  setError('');
+                  try { playSound('quiz_correct'); } catch {}
+                }}
+                className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3"
+              >
+                <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
+                  <Lock className="w-4 h-4 text-emerald-400" />
+                  <span>Stealth Vault PIN (Current: {vaultPin})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    maxLength={4}
+                    placeholder="Enter new 4-digit PIN"
+                    value={newVaultPin}
+                    onChange={(e) => setNewVaultPin(e.target.value)}
+                    className="flex-1 glass-input rounded-xl px-3 py-2 text-center text-xs font-mono text-emerald-400"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shrink-0"
+                  >
+                    Update PIN
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
 
         </div>
