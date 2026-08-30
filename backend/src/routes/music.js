@@ -132,7 +132,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
       target = `https://www.youtube.com/watch?v=${idOrQuery}`;
     }
 
-    const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=android,web" --geo-bypass --no-warnings "${target}"`;
+    const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=tvhtml5,android_creator" --geo-bypass --no-warnings "${target}"`;
 
     const stdout = await new Promise((resolve, reject) => {
       exec(cmd, { timeout: 16000 }, (err, out) => {
@@ -153,7 +153,26 @@ async function resolveAudioStreamUrl(idOrQuery) {
     console.warn('[Music Stream] Strategy 1 (yt-dlp) failed:', err.message);
   }
 
-  // Strategy 2: Invidious Instances Audio Stream
+  // Strategy 2: JioSaavn Direct Audio Stream Fallback
+  try {
+    const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(idOrQuery)}&ctx=web6dot0&_format=json`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 4000
+    });
+    const song = searchRes.data?.songs?.data?.[0];
+    if (song && song.more_info?.vlink) {
+      const streamUrl = song.more_info.vlink;
+      streamUrlCache.set(idOrQuery, {
+        url: streamUrl,
+        expireAt: Date.now() + 2 * 60 * 60 * 1000
+      });
+      return streamUrl;
+    }
+  } catch (e) {
+    console.warn('[Music Stream] Strategy 2 (JioSaavn) fallback error:', e.message);
+  }
+
+  // Strategy 3: Invidious Instances Audio Stream
   const invidiousInstances = [
     'https://invidious.nerdvpn.de',
     'https://yt.drgnz.club',
