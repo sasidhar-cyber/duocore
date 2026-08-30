@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "=============================================="
-echo "🚀 STARTING DUOCORE SQUAD PLATFORM..."
+echo "🚀 STARTING DUOCORE SQUAD PLATFORM (PROD ENGINE)..."
 echo "=============================================="
 
 # 1. Kill any existing ports
@@ -12,9 +12,9 @@ echo "📡 Starting Backend Server on http://localhost:5000..."
 node /home/sasidhar/Projects/duocore/backend/src/server.js > /tmp/duocore-backend.log 2>&1 &
 BACKEND_PID=$!
 
-# 3. Start Frontend Dev Server
-echo "⚡ Starting Frontend UI on http://localhost:3000..."
-cd /home/sasidhar/Projects/duocore/frontend && npx vite --host 0.0.0.0 --port 3000 > /tmp/duocore-frontend.log 2>&1 &
+# 3. Build & Start Production Frontend Server
+echo "⚡ Building & Starting Frontend UI on http://localhost:3000..."
+cd /home/sasidhar/Projects/duocore/frontend && npm run build && npx vite preview --host 0.0.0.0 --port 3000 > /tmp/duocore-frontend.log 2>&1 &
 FRONTEND_PID=$!
 
 # Trap signals to clean up background processes when script exits
@@ -25,3 +25,4 @@ sleep 3
 # 4. Start Cloudflare Tunnel for Public Mobile/Web Access
 echo "🌐 Starting Cloudflare Public Tunnel..."
 /home/sasidhar/Projects/duocore/cloudflared tunnel --url http://127.0.0.1:3000
+

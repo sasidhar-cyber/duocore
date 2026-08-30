@@ -13,6 +13,7 @@ import { StatsModal } from './components/StatsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { ChatView } from './components/ChatView';
 import { InviteModal } from './components/InviteModal';
+import { BottomNav } from './components/BottomNav';
 import { NetworkStatusBanner } from './components/NetworkStatusBanner';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { AuthPage } from './pages/AuthPage';
@@ -68,17 +69,6 @@ function AppContent() {
     }
   }, [loading, refreshPartnerState]);
 
-  // Global Keyboard Panic / Back to Music key (Esc)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && activeTab === 'chat') {
-        setActiveTab('music');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab]);
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white select-none">
@@ -101,31 +91,6 @@ function AppContent() {
     return <AuthPage onAuthenticated={() => setAuthOpen(false)} />;
   }
 
-  // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT
-  if (activeTab === 'chat') {
-    return (
-      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-1 sm:p-4 select-none relative overflow-hidden">
-        <NetworkStatusBanner />
-
-        <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">
-          <ChatView
-            onBack={() => setActiveTab('music')}
-            onOpenInvite={() => setInviteModalOpen(true)}
-          />
-        </div>
-
-        <InviteModal
-          isOpen={inviteModalOpen}
-          onClose={() => setInviteModalOpen(false)}
-        />
-
-        {/* Global sticky player if audio is active */}
-        {currentTrack && <MusicPlayerBar />}
-      </div>
-    );
-  }
-
-  // 🎵 MUSIC TAB: FULL MUSIC STREAMING HOME
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-white relative">
       {/* Offline / Online Network Indicator */}
@@ -134,17 +99,34 @@ function AppContent() {
       {/* PWA Mobile Install Prompt */}
       <PWAInstallPrompt />
 
+      {/* Top Navbar */}
       <Navbar
         onOpenAuth={() => setAuthOpen(true)}
         onOpenChat={() => setActiveTab('chat')}
       />
 
-      <main className="flex-1">
-        <MusicHomePage />
+      {/* Main View Area: Switches seamlessly between Music and Chat */}
+      <main className="flex-1 flex flex-col min-h-0 pb-16">
+        {activeTab === 'chat' ? (
+          <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto p-1 sm:p-4 flex flex-col">
+            <ChatView
+              onBack={() => setActiveTab('music')}
+              onOpenInvite={() => setInviteModalOpen(true)}
+            />
+          </div>
+        ) : (
+          <MusicHomePage />
+        )}
       </main>
 
-      {/* Global Bottom Sticky Music Player */}
+      {/* Global Sticky Music Player */}
       <MusicPlayerBar />
+
+      {/* Bottom Navigation Bar */}
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
 
       {/* Full Screen Now Playing View */}
       <NowPlayingModal
@@ -166,6 +148,12 @@ function AppContent() {
 
       {/* Keyboard Shortcuts Help Modal */}
       <KeyboardShortcutsModal />
+
+      {/* Invite Modal */}
+      <InviteModal
+        isOpen={inviteModalOpen}
+        onClose={() => setInviteModalOpen(false)}
+      />
     </div>
   );
 }
