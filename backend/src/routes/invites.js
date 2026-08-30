@@ -229,6 +229,15 @@ router.post('/accept', requireAuth, (req, res) => {
       `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
     }
 
+    // Clean up any prior solo rooms that current user was in
+    db.prepare(`
+      DELETE FROM room_members 
+      WHERE user_id = ? AND room_id != ? AND room_id IN (
+        SELECT r.id FROM rooms r 
+        WHERE (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) <= 1
+      )
+    `).run(userId, roomId);
+
     // Record permanent partnership in duo_partnerships table
     if (senderId && senderId !== userId) {
       db.prepare(`
