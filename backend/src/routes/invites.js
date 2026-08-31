@@ -162,47 +162,53 @@ router.get('/code/:code', requireAuth, (req, res) => {
 // Accept Invite Code & Join Duo Squad Room
 router.post('/accept', requireAuth, (req, res) => {
   const { code } = req.body;
+router.post('/accept', requireAuth, (req, res) => {
+  const { code } = req.body;
   const userId = req.user.id;
 
   if (!code) {
     return res.status(400).json({ error: 'Invite code is required.' });
   }
 
-  let cleanCode = code.trim().toUpperCase();
-  if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
-    cleanCode = `DUO-${cleanCode}`;
-  }
-  const now = new Date().toISOString();
+  try {
+    const rawClean = String(code).trim().toUpperCase();
+    const digitsOnly = rawClean.replace(/[^0-9]/g, '');
+    const fullDuoCode = digitsOnly ? `DUO-${digitsOnly}` : rawClean;
 
-  // 1. Look for existing room with this code (active or inactive)
-  let room = db.prepare('SELECT * FROM rooms WHERE (code = ? OR code = ?)').get(cleanCode, cleanCode.replace('DUO-', ''));
-  let senderId = null;
-  let senderUsername = 'Partner';
+    const now = new Date().toISOString();
 
-  if (!room) {
-    // 2. Look in duo_invites table
-    const invite = db.prepare(`
-      SELECT di.*, u.username as sender_username
-      FROM duo_invites di
-      JOIN users u ON di.sender_id = u.id
-      WHERE di.code = ?
-      ORDER BY di.created_at DESC
+    // 1. Look for existing room matching any format
+    let room = db.prepare(`
+      SELECT * FROM rooms 
+      WHERE code = ? OR code = ? OR code = ? OR code LIKE ?
       LIMIT 1
-    `).get(cleanCode);
+    `).get(fullDuoCode, digitsOnly, rawClean, `%${digitsOnly || rawClean}%`);
 
-    if (!invite) {
-      return res.status(400).json({ error: `Invalid code "${cleanCode}". Please verify your friend's 1v1 code.` });
+    let senderId = null;
+    let senderUsername = 'Partner';
+
+    if (!room) {
+      // 2. Look in duo_invites table
+      const invite = db.prepare(`
+        SELECT di.*, u.username as sender_username
+        FROM duo_invites di
+        JOIN users u ON di.sender_id = u.id
+        WHERE di.code = ? OR di.code = ? OR di.code LIKE ?
+        ORDER BY di.created_at DESC
+        LIMIT 1
+      `).get(fullDuoCode, rawClean, `%${digitsOnly || rawClean}%`);
+
+      if (!invite) {
+        return res.status(400).json({ error: `Room code "${code}" not found. Please ask your friend to tap [CREATE ROOM] or share their code.` });
+      }
+      senderId = invite.sender_id;
+      senderUsername = invite.sender_username;
+    } else {
+      senderId = room.created_by;
+      db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(room.id);
     }
-    senderId = invite.sender_id;
-    senderUsername = invite.sender_username;
-  } else {
-    senderId = room.created_by;
-    // Reactivate room
-    db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(room.id);
-  }
 
-  let roomId;
-  const tx = db.transaction(() => {
+    let roomId;
     if (!room) {
       roomId = 'room-duo-' + uuidv4().slice(0, 8);
       const roomName = `${senderUsername}'s Duo Room`;
@@ -210,7 +216,7 @@ router.post('/accept', requireAuth, (req, res) => {
       db.prepare(`
         INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
         VALUES (?, ?, ?, '', ?, 1, ?)
-      `).run(roomId, cleanCode, roomName, senderId, now);
+      `).run(roomId, fullDuoCode, roomName, senderId, now);
 
       db.prepare(`
         INSERT OR IGNORE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
@@ -226,12 +232,12 @@ router.post('/accept', requireAuth, (req, res) => {
     const existingMember = db.prepare('SELECT id FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId);
     if (!existingMember) {
       db.prepare(`
-        INSERT INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
+        INSERT OR REPLACE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
         VALUES (?, ?, ?, 'member', ?, ?, 'General', 'Duo Chat', 0, '')
       `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
     }
 
-    // Clean up any prior solo rooms that current user was in
+    // Clean up any solo rooms that current user was in
     try {
       db.prepare(`
         DELETE FROM room_members 
@@ -244,42 +250,44 @@ router.post('/accept', requireAuth, (req, res) => {
 
     // Record permanent partnership in duo_partnerships table
     if (senderId && senderId !== userId) {
-      db.prepare(`
-        INSERT OR REPLACE INTO duo_partnerships (id, user1_id, user2_id, status, established_at)
-        VALUES (?, ?, ?, 'active', ?)
-      `).run('part-' + uuidv4().slice(0, 8), senderId, userId, now);
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO duo_partnerships (id, user1_id, user2_id, status, established_at)
+          VALUES (?, ?, ?, 'active', ?)
+        `).run('part-' + uuidv4().slice(0, 8), senderId, userId, now);
+      } catch (e) {}
     }
-  });
 
-  tx();
+    const members = db.prepare(`
+      SELECT u.id, u.username, u.email, u.avatar_url, u.bio, u.xp, u.level, u.streak
+      FROM room_members rm
+      JOIN users u ON rm.user_id = u.id
+      WHERE rm.room_id = ?
+    `).all(roomId);
 
-  const members = db.prepare(`
-    SELECT u.id, u.username, u.email, u.avatar_url, u.bio, u.xp, u.level, u.streak
-    FROM room_members rm
-    JOIN users u ON rm.user_id = u.id
-    WHERE rm.room_id = ?
-  `).all(roomId);
-
-  // Notify everyone via socket
-  const io = req.app.get('io');
-  if (io) {
-    io.to(roomId).emit('room:member_joined', {
-      roomId,
-      user: req.user
-    });
-    if (senderId) {
-      io.to(`user:${senderId}`).emit('duo:connected', {
+    // Notify everyone via socket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(roomId).emit('room:member_joined', {
+        roomId,
+        user: req.user
+      });
+      io.emit('duo:connected', {
         room,
         partner: req.user
       });
     }
-  }
 
-  res.json({
-    message: 'Successfully connected to Duo Room!',
-    room,
-    members
-  });
+    return res.json({
+      success: true,
+      message: 'Successfully connected to Duo Room!',
+      room,
+      members
+    });
+  } catch (err) {
+    console.error('[Invites Accept] Error:', err);
+    return res.status(500).json({ error: 'Failed to join room. Please check code and try again.' });
+  }
 });
 
 // Cancel Pending Invite

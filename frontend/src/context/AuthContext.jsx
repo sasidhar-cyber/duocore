@@ -12,21 +12,34 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     async function loadUser() {
-      const activeToken = localStorage.getItem('duocore_token');
+      let activeToken = localStorage.getItem('duocore_token');
       if (activeToken) {
         try {
           const res = await api.getMe();
           setUser(res.user);
           setToken(activeToken);
           connectSocket(activeToken);
+          setLoading(false);
+          return;
         } catch (err) {
           localStorage.removeItem('duocore_token');
-          setUser(null);
-          setToken(null);
         }
-      } else {
-        setUser(null);
-        setToken(null);
+      }
+
+      // Auto-initialize guest user session so chat, sockets, and rooms work immediately
+      try {
+        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+        const regRes = await api.register({
+          username: guestName,
+          email: `${guestName.toLowerCase()}@soundwave.local`,
+          password: 'guest_secure_pass'
+        });
+        localStorage.setItem('duocore_token', regRes.token);
+        setUser(regRes.user);
+        setToken(regRes.token);
+        connectSocket(regRes.token);
+      } catch (e) {
+        console.warn('Guest initialization error:', e);
       }
       setLoading(false);
     }
