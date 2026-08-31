@@ -26,18 +26,13 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Auto-initialize guest user session so chat, sockets, and rooms work immediately
+      // Auto-initialize collision-free guest session so chat, sockets, and rooms work immediately
       try {
-        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-        const regRes = await api.register({
-          username: guestName,
-          email: `${guestName.toLowerCase()}@soundwave.local`,
-          password: 'guest_secure_pass'
-        });
-        localStorage.setItem('duocore_token', regRes.token);
-        setUser(regRes.user);
-        setToken(regRes.token);
-        connectSocket(regRes.token);
+        const guestRes = await api.guestLogin();
+        localStorage.setItem('duocore_token', guestRes.token);
+        setUser(guestRes.user);
+        setToken(guestRes.token);
+        connectSocket(guestRes.token);
       } catch (e) {
         console.warn('Guest initialization error:', e);
       }

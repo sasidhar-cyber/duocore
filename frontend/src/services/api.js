@@ -39,6 +39,7 @@ export default {
   // Auth & Profile
   register: (body) => apiRequest('/auth/register', { method: 'POST', body }),
   login: (body) => apiRequest('/auth/login', { method: 'POST', body }),
+  guestLogin: () => apiRequest('/auth/guest', { method: 'POST' }),
   getMe: () => apiRequest('/auth/me'),
   updateProfile: (body) => apiRequest('/auth/profile', { method: 'PATCH', body }),
   changePassword: (body) => apiRequest('/auth/change-password', { method: 'POST', body }),
@@ -109,6 +110,7 @@ export default {
   // Duo Partnership & Invites (Persistent 1-Time Connect)
   getCurrentPartner: () => apiRequest('/partners/current'),
   createDuoRoom: () => apiRequest('/partners/create-room', { method: 'POST' }),
+  joinDuoRoom: (code) => apiRequest('/partners/join-room', { method: 'POST', body: { code } }),
   removePartner: () => apiRequest('/partners/remove', { method: 'POST' }),
   createInvite: () => apiRequest('/invites/create', { method: 'POST' }),
   validateInvite: (code) => apiRequest(`/invites/code/${encodeURIComponent(code)}`),

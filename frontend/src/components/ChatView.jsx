@@ -151,13 +151,8 @@ export function ChatView({ onOpenInvite, onBack }) {
     try {
       let token = localStorage.getItem('duocore_token');
       if (!token) {
-        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-        const regRes = await api.register({
-          username: guestName,
-          email: `${guestName.toLowerCase()}@soundwave.local`,
-          password: 'guest_secure_pass'
-        });
-        localStorage.setItem('duocore_token', regRes.token);
+        const guestRes = await api.guestLogin();
+        localStorage.setItem('duocore_token', guestRes.token);
       }
       await api.createDuoRoom();
       await refreshPartnerState();
@@ -226,29 +221,19 @@ export function ChatView({ onOpenInvite, onBack }) {
     setJoinError('');
 
     try {
-      let cleanCode = inputCode.trim().toUpperCase();
-      if (!cleanCode.startsWith('DUO-') && /^\d+$/.test(cleanCode)) {
-        cleanCode = `DUO-${cleanCode}`;
-      }
-
       // Ensure session exists before connecting
       let token = localStorage.getItem('duocore_token');
       if (!token) {
-        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
-        const regRes = await api.register({
-          username: guestName,
-          email: `${guestName.toLowerCase()}@soundwave.local`,
-          password: 'guest_secure_pass'
-        });
-        localStorage.setItem('duocore_token', regRes.token);
+        const guestRes = await api.guestLogin();
+        localStorage.setItem('duocore_token', guestRes.token);
       }
 
-      await api.acceptInvite(cleanCode);
+      await api.joinDuoRoom(inputCode.trim());
       await refreshPartnerState();
       setInputCode('');
       try { playSound('quiz_correct'); } catch (err) {}
     } catch (err) {
-      setJoinError(err.message || 'Invalid invite code. Please check and try again.');
+      setJoinError(err.message || 'Room not found. Please check code and try again.');
       try { playSound('quiz_wrong'); } catch (e) {}
     } finally {
       setJoinLoading(false);

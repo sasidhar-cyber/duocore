@@ -118,6 +118,92 @@ router.post('/create-room', requireAuth, (req, res) => {
   });
 });
 
+// Explicitly Join Room via Code (Option: "Join Room")
+router.post('/join-room', requireAuth, (req, res) => {
+  const { code } = req.body;
+  const userId = req.user.id;
+
+  if (!code) {
+    return res.status(400).json({ error: 'Please enter a room code.' });
+  }
+
+  try {
+    const rawClean = String(code).trim().toUpperCase();
+    const digitsOnly = rawClean.replace(/[^0-9]/g, '');
+    const fullDuoCode = digitsOnly ? `DUO-${digitsOnly}` : rawClean;
+    const now = new Date().toISOString();
+
+    // Find room matching any formatting variation
+    const room = db.prepare(`
+      SELECT * FROM rooms 
+      WHERE code = ? OR code = ? OR code = ? OR code LIKE ?
+      LIMIT 1
+    `).get(fullDuoCode, digitsOnly, rawClean, `%${digitsOnly || rawClean}%`);
+
+    if (!room) {
+      return res.status(404).json({ error: `Room code "${code}" not found. Please ensure Phone A tapped [CREATE ROOM].` });
+    }
+
+    const roomId = room.id;
+    const hostId = room.created_by;
+
+    // Reactivate room
+    db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(roomId);
+
+    // Clear user's other solo rooms
+    try {
+      db.prepare(`
+        DELETE FROM room_members 
+        WHERE user_id = ? AND room_id != ? AND room_id IN (
+          SELECT r.id FROM rooms r 
+          WHERE (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) <= 1
+        )
+      `).run(userId, roomId);
+    } catch (err) {}
+
+    // Add current user to room
+    db.prepare(`
+      INSERT OR REPLACE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
+      VALUES (?, ?, ?, 'member', ?, ?, 'General', 'Duo Chat', 0, '')
+    `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
+
+    // Link permanent partnership
+    if (hostId && hostId !== userId) {
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO duo_partnerships (id, user_a_id, user_b_id, room_id, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'active', ?, ?)
+        `).run('part-' + uuidv4().slice(0, 8), hostId, userId, roomId, now, now);
+      } catch (err) {}
+    }
+
+    // Get all members
+    const members = db.prepare(`
+      SELECT u.id, u.username, u.email, u.avatar_url, u.bio, u.xp, u.level, u.streak
+      FROM room_members rm
+      JOIN users u ON rm.user_id = u.id
+      WHERE rm.room_id = ?
+    `).all(roomId);
+
+    // Broadcast live event on WebSocket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(roomId).emit('room:member_joined', { roomId, user: req.user });
+      io.emit('duo:connected', { roomId, partner: req.user });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Connected to Duo Room successfully!',
+      room,
+      members
+    });
+  } catch (err) {
+    console.error('[Join Room] Error:', err);
+    return res.status(500).json({ error: 'Failed to join room. Please check code and try again.' });
+  }
+});
+
 // Leave / Reset Room
 router.post('/remove', requireAuth, (req, res) => {
   const userId = req.user.id;

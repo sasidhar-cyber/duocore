@@ -9,6 +9,33 @@ const router = express.Router();
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Guest Auto-Login (Collision-free session for 1v1 rooms)
+router.post('/guest', (req, res) => {
+  try {
+    const guestId = 'user-' + uuidv4().slice(0, 8);
+    const guestName = 'User_' + uuidv4().slice(0, 6);
+    const guestEmail = `${guestName.toLowerCase()}@soundwave.local`;
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO users (id, username, email, password_hash, avatar_url, bio, xp, level, streak, last_active_date, created_at)
+      VALUES (?, ?, ?, 'guest_pass', '', 'Duo Chat User', 100, 1, 1, ?, ?)
+    `).run(guestId, guestName, guestEmail, now.split('T')[0], now);
+
+    const newUser = db.prepare('SELECT id, username, email, avatar_url, bio, xp, level, streak, sound_enabled, motion_reduced, theme FROM users WHERE id = ?').get(guestId);
+    const token = generateToken(newUser);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: newUser
+    });
+  } catch (err) {
+    console.error('[Auth Guest] Error:', err);
+    res.status(500).json({ error: 'Failed to initialize session' });
+  }
+});
+
 // Register
 router.post('/register', authLimiter, (req, res) => {
   const { username, email, password } = req.body;
