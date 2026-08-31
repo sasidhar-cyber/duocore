@@ -138,11 +138,37 @@ export function ChatView({ onOpenInvite, onBack }) {
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
 
   // Invite & Pairing Form State
+  const [lobbyMode, setLobbyMode] = useState('select'); // 'select' | 'create' | 'join'
+  const [createLoading, setCreateLoading] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCreateRoom = async () => {
+    setCreateLoading(true);
+    try {
+      let token = localStorage.getItem('duocore_token');
+      if (!token) {
+        const guestName = 'User_' + Math.floor(1000 + Math.random() * 9000);
+        const regRes = await api.register({
+          username: guestName,
+          email: `${guestName.toLowerCase()}@soundwave.local`,
+          password: 'guest_secure_pass'
+        });
+        localStorage.setItem('duocore_token', regRes.token);
+      }
+      await api.createDuoRoom();
+      await refreshPartnerState();
+      setLobbyMode('create');
+      try { playSound('quiz_correct'); } catch (e) {}
+    } catch (err) {
+      alert(err.message || 'Failed to create room');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   // Search in Chat
   const [searchOpen, setSearchOpen] = useState(false);
@@ -669,8 +695,9 @@ export function ChatView({ onOpenInvite, onBack }) {
             </button>
           </div>
         ) : (
-          /* 🎮 2-PLAYER GAME-STYLE ROOM LOBBY (HOST OR JOIN) */
+          /* 🎮 2-PLAYER GAME-STYLE ROOM LOBBY (SELECT, CREATE, OR JOIN) */
           <div className="p-4 sm:p-6 rounded-3xl bg-slate-900/95 border-2 border-emerald-500/40 shadow-2xl space-y-5 max-w-lg mx-auto mb-2 animate-in fade-in">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-emerald-400 font-black text-xs sm:text-sm tracking-wider uppercase">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -681,84 +708,146 @@ export function ChatView({ onOpenInvite, onBack }) {
               </span>
             </div>
 
-            {/* Option 1: HOST - SHARE YOUR CODE */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                  Option 1: Share Your Code (Phone A)
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400 font-bold">READY TO HOST</span>
-              </div>
+            {/* MODE 1: SELECT (CREATE OR JOIN) */}
+            {lobbyMode === 'select' && (
+              <div className="space-y-4 py-2">
+                <p className="text-xs text-slate-300 text-center font-medium">
+                  Connect with your friend to unlock private real-time chat, HD calls, and music sharing!
+                </p>
 
-              <div className="p-3.5 rounded-2xl bg-black/60 border border-emerald-500/50 flex items-center justify-between gap-3 shadow-inner">
-                <div>
-                  <span className="text-[9px] font-mono text-slate-400 uppercase font-bold block">YOUR ROOM CODE</span>
-                  <span className="text-xl sm:text-2xl font-black text-emerald-300 font-mono tracking-widest">
-                    {roomData?.code || 'DUO-ROOM'}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  {/* CREATE ROOM CARD */}
+                  <button
+                    onClick={handleCreateRoom}
+                    disabled={createLoading}
+                    className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border-2 border-emerald-500/50 hover:border-emerald-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-3"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">
+                      ➕
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-white group-hover:text-emerald-300">CREATE ROOM</h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Host a new room & get a code for your friend</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                      {createLoading ? 'Generating Code...' : 'HOST NOW ⚡'}
+                    </span>
+                  </button>
+
+                  {/* JOIN ROOM CARD */}
+                  <button
+                    onClick={() => setLobbyMode('join')}
+                    className="p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border-2 border-cyan-500/50 hover:border-cyan-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-3"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500 text-slate-950 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">
+                      🚀
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-white group-hover:text-cyan-300">JOIN ROOM</h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Enter the code shared by your friend</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-cyan-400 font-bold">
+                      ENTER CODE 🔑
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* MODE 2: CREATE ROOM (SHOWS CODE TO SHARE) */}
+            {lobbyMode === 'create' && (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                    Share this code with your friend
                   </span>
-                </div>
-
-                <div className="flex items-center gap-1.5">
                   <button
-                    onClick={handleCopyCode}
-                    className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                    onClick={() => setLobbyMode('select')}
+                    className="text-[10px] font-mono text-slate-400 hover:text-white underline"
                   >
-                    {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode ? 'Copied!' : 'Copy Code'}</span>
-                  </button>
-
-                  <button
-                    onClick={handleCopyLinkOnly}
-                    className="px-3 py-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900/80 text-xs font-bold text-cyan-300 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
-                    title="Copy Direct Invite Link"
-                  >
-                    {copiedLink ? <Check className="w-3.5 h-3.5 text-cyan-400" /> : <LinkIcon className="w-3.5 h-3.5" />}
-                    <span>{copiedLink ? 'Copied!' : 'Link'}</span>
+                    ↩ Back
                   </button>
                 </div>
-              </div>
 
-              {/* WhatsApp 1-Click Invite Button */}
-              <button
-                onClick={handleCopyWhatsApp}
-                className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 active:scale-95 transition-transform"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share Code on WhatsApp 📲</span>
-              </button>
-            </div>
+                <div className="p-4 rounded-2xl bg-black/60 border border-emerald-500/50 flex items-center justify-between gap-3 shadow-inner">
+                  <div>
+                    <span className="text-[9px] font-mono text-slate-400 uppercase font-bold block">YOUR ROOM CODE</span>
+                    <span className="text-2xl sm:text-3xl font-black text-emerald-300 font-mono tracking-widest">
+                      {roomData?.code || 'DUO-ROOM'}
+                    </span>
+                  </div>
 
-            {/* DIVIDER */}
-            <div className="relative flex py-1 items-center">
-              <div className="flex-grow border-t border-slate-800"></div>
-              <span className="flex-shrink mx-3 text-[10px] font-mono text-slate-500 uppercase font-bold">OR</span>
-              <div className="flex-grow border-t border-slate-800"></div>
-            </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleCopyCode}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                    >
+                      {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCode ? 'Copied!' : 'Copy Code'}</span>
+                    </button>
 
-            {/* Option 2: JOIN - ENTER FRIEND'S CODE */}
-            <form onSubmit={handleJoinByCode} className="space-y-2.5">
-              <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
-                Option 2: Join Friend's Room (Phone B)
-              </span>
+                    <button
+                      onClick={handleCopyLinkOnly}
+                      className="px-3 py-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900/80 text-xs font-bold text-cyan-300 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                      title="Copy Direct Invite Link"
+                    >
+                      {copiedLink ? <Check className="w-3.5 h-3.5 text-cyan-400" /> : <LinkIcon className="w-3.5 h-3.5" />}
+                      <span>{copiedLink ? 'Copied!' : 'Link'}</span>
+                    </button>
+                  </div>
+                </div>
 
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter Code (e.g. 503 or DUO-503)"
-                  value={inputCode}
-                  onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-                  className="flex-1 glass-input rounded-2xl px-4 py-3 text-sm font-mono tracking-widest text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-600 border border-slate-700 focus:border-cyan-400"
-                />
+                {/* WhatsApp 1-Click Invite Button */}
                 <button
-                  type="submit"
-                  disabled={joinLoading || !inputCode.trim()}
-                  className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 transition-transform active:scale-95 shadow-lg shadow-cyan-500/30"
+                  onClick={handleCopyWhatsApp}
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 active:scale-95 transition-transform"
                 >
-                  {joinLoading ? 'Joining...' : 'JOIN ROOM 🚀'}
+                  <Share2 className="w-4 h-4" />
+                  <span>Share Code on WhatsApp 📲</span>
                 </button>
+
+                <p className="text-[11px] font-mono text-center text-yellow-300/90 animate-pulse pt-1">
+                  ⏳ Waiting for friend to enter code {roomData?.code}...
+                </p>
               </div>
-              {joinError && <p className="text-xs text-red-400 font-bold px-1">{joinError}</p>}
-            </form>
+            )}
+
+            {/* MODE 3: JOIN ROOM (INPUT FRIEND'S CODE) */}
+            {lobbyMode === 'join' && (
+              <form onSubmit={handleJoinByCode} className="space-y-4 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                    Enter your friend's code
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLobbyMode('select')}
+                    className="text-[10px] font-mono text-slate-400 hover:text-white underline"
+                  >
+                    ↩ Back
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. 482 or DUO-482"
+                    value={inputCode}
+                    onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                    className="flex-1 glass-input rounded-2xl px-4 py-3 text-sm font-mono tracking-widest text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-600 border border-slate-700 focus:border-cyan-400"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={joinLoading || !inputCode.trim()}
+                    className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 transition-transform active:scale-95 shadow-lg shadow-cyan-500/30"
+                  >
+                    {joinLoading ? 'Joining...' : 'JOIN ROOM 🚀'}
+                  </button>
+                </div>
+                {joinError && <p className="text-xs text-red-400 font-bold px-1">{joinError}</p>}
+              </form>
+            )}
           </div>
         )}
 

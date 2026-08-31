@@ -108,6 +108,7 @@ export default {
 
   // Duo Partnership & Invites (Persistent 1-Time Connect)
   getCurrentPartner: () => apiRequest('/partners/current'),
+  createDuoRoom: () => apiRequest('/partners/create-room', { method: 'POST' }),
   removePartner: () => apiRequest('/partners/remove', { method: 'POST' }),
   createInvite: () => apiRequest('/invites/create', { method: 'POST' }),
   validateInvite: (code) => apiRequest(`/invites/code/${encodeURIComponent(code)}`),

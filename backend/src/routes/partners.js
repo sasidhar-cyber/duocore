@@ -6,7 +6,7 @@ const { isUserOnline, getUserLastSeen } = require('../sockets/presenceHandler');
 
 const router = express.Router();
 
-// Get Current Active Study Room & Squad Members (Auto-creates personal room if none exists)
+// Get Current Active Study Room & Squad Members
 router.get('/current', requireAuth, (req, res) => {
   const userId = req.user.id;
   const now = new Date().toISOString();
@@ -21,34 +21,16 @@ router.get('/current', requireAuth, (req, res) => {
     LIMIT 1
   `).get(userId);
 
-  // 2. If no room yet, automatically create one so user goes straight into the chat
   if (!memberRecord) {
-    const roomId = 'room-duo-' + uuidv4().slice(0, 8);
-    let code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
-
-    let attempts = 0;
-    while (attempts < 10) {
-      const clash = db.prepare('SELECT id FROM rooms WHERE code = ?').get(code);
-      if (!clash) break;
-      code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
-      attempts++;
-    }
-
-    db.prepare(`
-      INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
-      VALUES (?, ?, ?, '', ?, 1, ?)
-    `).run(roomId, code, `${req.user.username}'s Duo Room`, userId, now);
-
-    db.prepare(`
-      INSERT OR IGNORE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
-      VALUES (?, ?, ?, 'creator', ?, ?, 'General', 'Duo Chat', 0, '')
-    `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
-
-    memberRecord = {
-      room_id: roomId,
-      room_code: code,
-      room_name: `${req.user.username}'s Duo Room`
-    };
+    return res.json({
+      hasPartner: false,
+      hasRoom: false,
+      room: null,
+      partner: null,
+      members: [],
+      memberCount: 0,
+      goals: []
+    });
   }
 
   const roomId = memberRecord.room_id;
@@ -91,6 +73,51 @@ router.get('/current', requireAuth, (req, res) => {
   });
 });
 
+// Explicitly Create a New 1v1 Room (Option: "Create Room")
+router.post('/create-room', requireAuth, (req, res) => {
+  const userId = req.user.id;
+  const now = new Date().toISOString();
+
+  // Clear any existing solo rooms for this user first
+  db.prepare(`
+    DELETE FROM room_members 
+    WHERE user_id = ? AND room_id IN (
+      SELECT r.id FROM rooms r 
+      WHERE (SELECT COUNT(*) FROM room_members rm2 WHERE rm2.room_id = r.id) <= 1
+    )
+  `).run(userId);
+
+  const roomId = 'room-duo-' + uuidv4().slice(0, 8);
+  let code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
+
+  let attempts = 0;
+  while (attempts < 15) {
+    const clash = db.prepare('SELECT id FROM rooms WHERE code = ?').get(code);
+    if (!clash) break;
+    code = `DUO-${Math.floor(100 + Math.random() * 900)}`;
+    attempts++;
+  }
+
+  db.prepare(`
+    INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
+    VALUES (?, ?, ?, '', ?, 1, ?)
+  `).run(roomId, code, `${req.user.username}'s Duo Room`, userId, now);
+
+  db.prepare(`
+    INSERT OR IGNORE INTO room_members (id, room_id, user_id, role, joined_at, last_seen, current_subject, current_topic, is_studying, study_started_at)
+    VALUES (?, ?, ?, 'creator', ?, ?, 'General', 'Duo Chat', 0, '')
+  `).run('rm-' + uuidv4().slice(0, 8), roomId, userId, now, now);
+
+  res.json({
+    success: true,
+    room: {
+      id: roomId,
+      code,
+      name: `${req.user.username}'s Duo Room`
+    }
+  });
+});
+
 // Leave / Reset Room
 router.post('/remove', requireAuth, (req, res) => {
   const userId = req.user.id;
@@ -104,7 +131,7 @@ router.post('/remove', requireAuth, (req, res) => {
   `).get(userId);
 
   if (!memberRecord) {
-    return res.status(400).json({ error: 'No active room found to leave.' });
+    return res.json({ message: 'No active room' });
   }
 
   const roomId = memberRecord.room_id;
@@ -114,8 +141,13 @@ router.post('/remove', requireAuth, (req, res) => {
 
   // Check remaining members
   const remaining = db.prepare('SELECT COUNT(*) as count FROM room_members WHERE room_id = ?').get(roomId).count;
-  if (remaining === 0) {
+  if (remaining <= 1) {
     db.prepare('UPDATE rooms SET is_active = 0 WHERE id = ?').run(roomId);
+  }
+
+  const io = req.app.get('io');
+  if (io) {
+    io.to(roomId).emit('duo:partner_removed');
   }
 
   res.json({ message: 'Disconnected from room successfully' });
