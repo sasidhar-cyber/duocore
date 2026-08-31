@@ -228,9 +228,10 @@ export function ChatView({ onOpenInvite, onBack }) {
         localStorage.setItem('duocore_token', guestRes.token);
       }
 
-      await api.joinDuoRoom(inputCode.trim());
+      const joinRes = await api.joinDuoRoom(inputCode.trim());
       await refreshPartnerState();
       setInputCode('');
+      setLobbyMode('create');
       try { playSound('quiz_correct'); } catch (err) {}
     } catch (err) {
       setJoinError(err.message || 'Room not found. Please check code and try again.');
