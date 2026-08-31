@@ -816,10 +816,10 @@ export function ChatView({ onOpenInvite, onBack }) {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="e.g. 482 or DUO-482"
+                    placeholder="Enter Code (e.g. 503) or Custom Word (e.g. sasi)"
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-                    className="flex-1 glass-input rounded-2xl px-4 py-3 text-sm font-mono tracking-widest text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-600 border border-slate-700 focus:border-cyan-400"
+                    className="flex-1 glass-input rounded-2xl px-4 py-3 text-sm font-mono tracking-wider text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-500 border border-slate-700 focus:border-cyan-400"
                     autoFocus
                   />
                   <button
@@ -827,9 +827,12 @@ export function ChatView({ onOpenInvite, onBack }) {
                     disabled={joinLoading || !inputCode.trim()}
                     className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 transition-transform active:scale-95 shadow-lg shadow-cyan-500/30"
                   >
-                    {joinLoading ? 'Joining...' : 'JOIN ROOM 🚀'}
+                    {joinLoading ? 'Connecting...' : 'CONNECT 🚀'}
                   </button>
                 </div>
+                <p className="text-[11px] text-slate-400">
+                  💡 <span className="text-slate-300 font-bold">Fast Connect:</span> Both of you can type the exact same word (e.g. <span className="text-emerald-400 font-mono font-bold">sasi</span> or <span className="text-cyan-400 font-mono font-bold">duo123</span>) and tap Connect!
+                </p>
                 {joinError && <p className="text-xs text-red-400 font-bold px-1">{joinError}</p>}
               </form>
             )}

@@ -133,22 +133,34 @@ router.post('/join-room', requireAuth, (req, res) => {
     const fullDuoCode = digitsOnly ? `DUO-${digitsOnly}` : rawClean;
     const now = new Date().toISOString();
 
-    // Find room matching any formatting variation
-    const room = db.prepare(`
+    // 1. Look for existing room matching any formatting variation or custom name
+    let room = db.prepare(`
       SELECT * FROM rooms 
       WHERE code = ? OR code = ? OR code = ? OR code LIKE ?
       LIMIT 1
     `).get(fullDuoCode, digitsOnly, rawClean, `%${digitsOnly || rawClean}%`);
 
-    if (!room) {
-      return res.status(404).json({ error: `Room code "${code}" not found. Please ensure Phone A tapped [CREATE ROOM].` });
+    let roomId;
+    let hostId;
+
+    if (room) {
+      roomId = room.id;
+      hostId = room.created_by;
+      db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(roomId);
+    } else {
+      // 2. If room doesn't exist yet, auto-create it with this code/name
+      roomId = 'room-duo-' + uuidv4().slice(0, 8);
+      hostId = userId;
+      const roomCode = digitsOnly ? fullDuoCode : rawClean;
+      const roomName = `${roomCode} Room`;
+
+      db.prepare(`
+        INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
+        VALUES (?, ?, ?, '', ?, 1, ?)
+      `).run(roomId, roomCode, roomName, userId, now);
+
+      room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId);
     }
-
-    const roomId = room.id;
-    const hostId = room.created_by;
-
-    // Reactivate room
-    db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(roomId);
 
     // Clear user's other solo rooms
     try {
