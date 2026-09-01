@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useMusic } from '../context/MusicContext';
 import api from '../services/api';
 import {
@@ -97,6 +97,7 @@ export function MusicHomePage({ onOpenPinPrompt }) {
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [isVoiceSearching, setIsVoiceSearching] = useState(false);
+  const suggestionTimerRef = useRef(null);
 
   // Load trending preset tracks, curated albums & recommendations
   useEffect(() => {
@@ -132,10 +133,14 @@ export function MusicHomePage({ onOpenPinPrompt }) {
       return;
     }
 
+    if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
+
     if (q.trim().length >= 2) {
-      api.getSearchSuggestions(q)
-        .then((res) => setSuggestions(res.suggestions || []))
-        .catch(() => setSuggestions([]));
+      suggestionTimerRef.current = setTimeout(() => {
+        api.getSearchSuggestions(q.trim())
+          .then((res) => setSuggestions(res.suggestions || []))
+          .catch(() => setSuggestions([]));
+      }, 250);
       setShowSuggestions(true);
     } else {
       setSuggestions([]);

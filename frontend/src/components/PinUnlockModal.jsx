@@ -38,6 +38,27 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
     onUnlockSuccess();
   };
 
+  const handleFailedAttempt = () => {
+    const failures = Number(localStorage.getItem('duocore_pin_failures') || '0') + 1;
+    localStorage.setItem('duocore_pin_failures', String(failures));
+    const limit = Number(localStorage.getItem('duocore_pin_failure_limit') || '3');
+    const shouldClear = localStorage.getItem('duocore_panic_clear_enabled') === 'true' && failures >= limit;
+    if (shouldClear && roomData?.id) {
+      setIsClearing(true);
+      api.panicClearRoomMessages(roomData.id)
+        .then(() => setPinError('Too many incorrect PINs. Chat has been cleared.'))
+        .catch(() => setPinError('Too many incorrect PINs. Could not clear chat while offline.'))
+        .finally(() => {
+          localStorage.removeItem('duocore_pin_failures');
+          setIsClearing(false);
+        });
+    } else {
+      setPinError(`Incorrect PIN. ${Math.max(0, limit - failures)} attempts remaining.`);
+    }
+    setEnteredPin('');
+    try { playSound('quiz_wrong'); } catch (err) {}
+  };
+
   const handleKeypadPress = (digit) => {
     setPinError('');
     const next = (enteredPin + digit).slice(0, 4);
@@ -45,6 +66,8 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
 
     if (next === savedPin) {
       triggerUnlock();
+    } else if (next.length === 4) {
+      setTimeout(() => handleFailedAttempt(), 200);
     }
   };
 
@@ -58,24 +81,7 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
     if (enteredPin === savedPin) {
       triggerUnlock();
     } else {
-      const failures = Number(localStorage.getItem('duocore_pin_failures') || '0') + 1;
-      localStorage.setItem('duocore_pin_failures', String(failures));
-      const limit = Number(localStorage.getItem('duocore_pin_failure_limit') || '3');
-      const shouldClear = localStorage.getItem('duocore_panic_clear_enabled') === 'true' && failures >= limit;
-      if (shouldClear && roomData?.id) {
-        setIsClearing(true);
-        api.panicClearRoomMessages(roomData.id)
-          .then(() => setPinError('Too many incorrect PINs. Chat has been cleared.'))
-          .catch(() => setPinError('Too many incorrect PINs. Could not clear chat while offline.'))
-          .finally(() => {
-            localStorage.removeItem('duocore_pin_failures');
-            setIsClearing(false);
-          });
-      } else {
-        setPinError(`Incorrect PIN. ${Math.max(0, limit - failures)} attempts remaining.`);
-      }
-      setEnteredPin('');
-      try { playSound('quiz_wrong'); } catch (err) {}
+      handleFailedAttempt();
     }
   };
 
