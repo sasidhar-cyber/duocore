@@ -8,7 +8,6 @@ import {
   Mic,
   MicOff,
   PhoneOff,
-  MonitorUp,
   Maximize2,
   Minimize2,
   Users,
@@ -21,36 +20,50 @@ import { playSound } from '../utils/soundEffects';
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
-export function VideoCallModal({ isOpen, onClose }) {
+export function VideoCallModal({ isOpen, onClose, isInitiator = false }) {
   const { user } = useAuth();
-  const { roomData, members } = useRoom();
+  const { roomData, members, partner } = useRoom();
+
+  const otherPartner = partner || members.find((m) => m.id !== user?.id) || {
+    username: 'Duo Partner'
+  };
 
   const [inCall, setInCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
+  const [callDuration, setCallDuration] = useState(0);
+  const [callStatus, setCallStatus] = useState(isInitiator ? 'Calling...' : 'Connecting...');
 
-  const [callPeers, setCallPeers] = useState([]); // List of connected remote peer info
+  const [callPeers, setCallPeers] = useState([]);
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const peerConnections = useRef({}); // socketId -> RTCPeerConnection
   const remoteVideoRefs = useRef({}); // socketId -> HTMLVideoElement
+  const pendingCandidates = useRef({}); // socketId -> Array<candidate>
+  const timerRef = useRef(null);
 
   useEffect(() => {
-    if (isOpen && !inCall) {
+    if (isOpen) {
       startCall();
     }
+
+    return () => {
+      endCall();
+    };
   }, [isOpen]);
 
   const startCall = async () => {
     if (!roomData) return;
     try {
+      setCallStatus(isInitiator ? 'Ringing partner...' : 'Connecting video...');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
         audio: true
@@ -63,6 +76,11 @@ export function VideoCallModal({ isOpen, onClose }) {
 
       setInCall(true);
       playSound('quiz_correct');
+
+      // Start elapsed timer
+      timerRef.current = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
 
       const s = getSocket();
       if (s) {
@@ -87,6 +105,31 @@ export function VideoCallModal({ isOpen, onClose }) {
     }
   };
 
+  const endCall = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+
+    Object.values(peerConnections.current).forEach((pc) => pc.close());
+    peerConnections.current = {};
+    pendingCandidates.current = {};
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    const s = getSocket();
+    if (s && roomData) {
+      s.emit('call:leave', { roomId: roomData.id });
+    }
+
+    setInCall(false);
+    setCallDuration(0);
+    setCallStatus('Ended');
+  };
+
   const createPeerConnection = (remoteSocketId, remoteUser) => {
     if (peerConnections.current[remoteSocketId]) {
       return peerConnections.current[remoteSocketId];
@@ -95,7 +138,7 @@ export function VideoCallModal({ isOpen, onClose }) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current[remoteSocketId] = pc;
 
-    // Add local tracks to peer connection
+    // Add local tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current);
@@ -115,12 +158,27 @@ export function VideoCallModal({ isOpen, onClose }) {
       }
     };
 
+    // Connection state changes
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        setCallStatus('Connected');
+      } else if (state === 'connecting') {
+        setCallStatus('Connecting...');
+      } else if (state === 'disconnected' || state === 'failed') {
+        setCallStatus('Reconnecting...');
+      } else if (state === 'closed') {
+        setCallStatus('Ended');
+      }
+    };
+
     // Remote Track Received
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
       const videoEl = remoteVideoRefs.current[remoteSocketId];
       if (videoEl && remoteStream) {
         videoEl.srcObject = remoteStream;
+        setCallStatus('Connected');
       }
     };
 
@@ -133,7 +191,7 @@ export function VideoCallModal({ isOpen, onClose }) {
     if (!s) return;
 
     // 1. Existing peers list when we join
-    const handleExistingPeers = async ({ peers, members: allCallMembers }) => {
+    const handleExistingPeers = async ({ peers }) => {
       setCallPeers(peers);
 
       // Create offers to all existing peers
@@ -155,12 +213,27 @@ export function VideoCallModal({ isOpen, onClose }) {
     };
 
     // 2. A new peer joined the call
-    const handlePeerJoined = ({ member }) => {
+    const handlePeerJoined = async ({ member }) => {
       setCallPeers((prev) => {
         if (prev.some((p) => p.socketId === member.socketId)) return prev;
         return [...prev, member];
       });
       playSound('message');
+
+      // Create offer to newly joined peer
+      const pc = createPeerConnection(member.socketId, member);
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        s.emit('call:offer', {
+          toSocketId: member.socketId,
+          offer,
+          isVideoOff,
+          isMuted
+        });
+      } catch (err) {
+        console.error('[WebRTC] Error offering new peer:', err);
+      }
     };
 
     // 3. Receive Offer from a peer
@@ -173,6 +246,17 @@ export function VideoCallModal({ isOpen, onClose }) {
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+        // Flush pending candidates for this peer
+        if (pendingCandidates.current[fromSocketId]) {
+          for (const cand of pendingCandidates.current[fromSocketId]) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {}
+          }
+          delete pendingCandidates.current[fromSocketId];
+        }
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         s.emit('call:answer', {
@@ -190,6 +274,16 @@ export function VideoCallModal({ isOpen, onClose }) {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+          // Flush pending candidates
+          if (pendingCandidates.current[fromSocketId]) {
+            for (const cand of pendingCandidates.current[fromSocketId]) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (e) {}
+            }
+            delete pendingCandidates.current[fromSocketId];
+          }
         } catch (err) {
           console.error('[WebRTC] Error setting remote description:', err);
         }
@@ -199,19 +293,25 @@ export function VideoCallModal({ isOpen, onClose }) {
     // 5. Receive ICE Candidate
     const handleIceCandidate = async ({ fromSocketId, candidate }) => {
       const pc = peerConnections.current[fromSocketId];
-      if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('[WebRTC] Error adding ICE candidate:', err);
+      if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
+        if (!pendingCandidates.current[fromSocketId]) {
+          pendingCandidates.current[fromSocketId] = [];
         }
+        pendingCandidates.current[fromSocketId].push(candidate);
+        return;
+      }
+
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error('[WebRTC] Error adding ICE candidate:', err);
       }
     };
 
     // 6. Peer state change (video/audio toggle)
-    const handleMemberStateChange = ({ socketId, isVideoOff, isMuted, isScreenSharing }) => {
+    const handleMemberStateChange = ({ socketId, isVideoOff: vOff, isMuted: mOff }) => {
       setCallPeers((prev) =>
-        prev.map((p) => (p.socketId === socketId ? { ...p, isVideoOff, isMuted, isScreenSharing } : p))
+        prev.map((p) => (p.socketId === socketId ? { ...p, isVideoOff: vOff, isMuted: mOff } : p))
       );
     };
 
@@ -241,7 +341,7 @@ export function VideoCallModal({ isOpen, onClose }) {
       s.off('call:member_state_change', handleMemberStateChange);
       s.off('call:peer_left', handlePeerLeft);
     };
-  }, [isVideoOff, isMuted]);
+  }, []);
 
   // Toggle Mute
   const toggleMute = () => {
@@ -249,328 +349,209 @@ export function VideoCallModal({ isOpen, onClose }) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        const newMuted = !audioTrack.enabled;
-        setIsMuted(newMuted);
+        const nextMuted = !audioTrack.enabled;
+        setIsMuted(nextMuted);
 
         const s = getSocket();
         if (s && roomData) {
-          s.emit('call:toggle_audio', { roomId: roomData.id, isMuted: newMuted });
+          s.emit('call:toggle_audio', { roomId: roomData.id, isMuted: nextMuted });
         }
-        playSound('click');
       }
     }
   };
 
-  // Toggle Video Camera
-  const toggleVideo = async () => {
+  // Toggle Video
+  const toggleVideo = () => {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
-        const newVideoOff = !videoTrack.enabled;
-        setIsVideoOff(newVideoOff);
+        const nextOff = !videoTrack.enabled;
+        setIsVideoOff(nextOff);
 
         const s = getSocket();
         if (s && roomData) {
-          s.emit('call:toggle_video', { roomId: roomData.id, isVideoOff: newVideoOff });
+          s.emit('call:toggle_video', { roomId: roomData.id, isVideoOff: nextOff });
         }
-        playSound('click');
-      } else {
-        // Need to request video track
-        try {
-          const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          const newTrack = videoStream.getVideoTracks()[0];
-          localStreamRef.current.addTrack(newTrack);
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = localStreamRef.current;
-          }
-
-          // Replace track in peer connections
-          Object.values(peerConnections.current).forEach((pc) => {
-            pc.addTrack(newTrack, localStreamRef.current);
-          });
-
-          setIsVideoOff(false);
-          const s = getSocket();
-          if (s && roomData) {
-            s.emit('call:toggle_video', { roomId: roomData.id, isVideoOff: false });
-          }
-        } catch (e) {}
       }
     }
   };
 
-  // Flip Mobile Camera (Front / Rear)
-  const flipCamera = async () => {
-    const nextMode = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(nextMode);
-
+  // Flip Camera
+  const switchCameraFacing = async () => {
+    const nextFacing = facingMode === 'user' ? 'environment' : 'user';
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: nextMode }, width: { ideal: 640 }, height: { ideal: 480 } }
-      });
-      const newTrack = stream.getVideoTracks()[0];
-
       if (localStreamRef.current) {
-        const oldTrack = localStreamRef.current.getVideoTracks()[0];
-        if (oldTrack) {
-          oldTrack.stop();
-          localStreamRef.current.removeTrack(oldTrack);
-        }
-        localStreamRef.current.addTrack(newTrack);
+        localStreamRef.current.getVideoTracks().forEach((t) => t.stop());
       }
 
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
-      }
-
-      Object.values(peerConnections.current).forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-        if (sender) sender.replaceTrack(newTrack);
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: nextFacing },
+        audio: false
       });
-      playSound('click');
-    } catch (e) {
-      console.warn('Flip camera error:', e);
-    }
-  };
 
-  // Toggle Screen Share
-  const toggleScreenShare = async () => {
-    if (!isScreenSharing) {
-      try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const screenTrack = screenStream.getVideoTracks()[0];
+      const newVideoTrack = newStream.getVideoTracks()[0];
 
-        // Replace track in peer connections
-        Object.values(peerConnections.current).forEach((pc) => {
-          const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-          if (sender) sender.replaceTrack(screenTrack);
-        });
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = screenStream;
-        }
-
-        setIsScreenSharing(true);
-        const s = getSocket();
-        if (s && roomData) {
-          s.emit('call:toggle_screen', { roomId: roomData.id, isScreenSharing: true });
-        }
-
-        screenTrack.onended = () => {
-          stopScreenSharing();
-        };
-      } catch (err) {}
-    } else {
-      stopScreenSharing();
-    }
-  };
-
-  const stopScreenSharing = () => {
-    if (localStreamRef.current) {
-      const cameraTrack = localStreamRef.current.getVideoTracks()[0];
+      // Replace track on all peer connections
       Object.values(peerConnections.current).forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-        if (sender && cameraTrack) sender.replaceTrack(cameraTrack);
+        const senders = pc.getSenders();
+        const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          videoSender.replaceTrack(newVideoTrack);
+        }
       });
 
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.srcObject = new MediaStream([
+          newVideoTrack,
+          localStreamRef.current.getAudioTracks()[0]
+        ]);
       }
-    }
-    setIsScreenSharing(false);
-    const s = getSocket();
-    if (s && roomData) {
-      s.emit('call:toggle_screen', { roomId: roomData.id, isScreenSharing: false });
+
+      setFacingMode(nextFacing);
+    } catch (err) {
+      console.warn('Could not switch camera:', err);
     }
   };
 
-  // End Call
-  const handleEndCall = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
-
-    Object.values(peerConnections.current).forEach((pc) => pc.close());
-    peerConnections.current = {};
-
-    const s = getSocket();
-    if (s && roomData) {
-      s.emit('call:leave', { roomId: roomData.id });
-    }
-
-    setInCall(false);
-    playSound('quiz_wrong');
-    onClose();
+  const formatDuration = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200">
-      <div
-        className={`w-full ${
-          isFullscreen ? 'h-full max-w-none' : 'max-w-5xl h-[85vh]'
-        } glass-panel rounded-3xl border border-cyan-500/40 shadow-2xl flex flex-col overflow-hidden bg-slate-950/95 relative`}
-      >
-        {/* Call Top Header */}
-        <div className="p-4 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/90 backdrop-blur-md animate-in fade-in select-none">
+      <div className="w-full max-w-4xl h-[92vh] sm:h-[88vh] glass-panel rounded-3xl border border-emerald-500/40 shadow-2xl flex flex-col bg-slate-950/95 overflow-hidden relative">
+        {/* Header */}
+        <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between z-20 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 p-[1.5px] shadow-md shadow-cyan-500/20">
-              <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-base font-bold text-cyan-400">
-                📹
-              </div>
+            <div className="w-9 h-9 rounded-2xl bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400 font-bold text-sm shadow-md">
+              <Video className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-black text-white">Squad HD Video Call</h3>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {callPeers.length + 1} participant{callPeers.length > 0 ? 's' : ''} connected
+              <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                <span>{otherPartner.username || '1v1 Video Call'}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase ${
+                  callStatus === 'Connected'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 animate-pulse'
+                }`}>
+                  {callStatus}
+                </span>
+              </h3>
+              <p className="text-[10px] font-mono text-slate-400">
+                {callStatus === 'Connected' ? `Duration: ${formatDuration(callDuration)}` : 'WebRTC Encrypted P2P'}
               </p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={handleEndCall}
-              className="p-2 rounded-xl bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/30"
-              title="Leave Call"
-            >
-              <PhoneOff className="w-4 h-4" />
-            </button>
-          </div>
         </div>
 
-        {/* Video Mesh Grid */}
-        <div className="flex-1 p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-950">
-          {/* Local User Video Tile */}
-          <div className="relative rounded-2xl overflow-hidden border border-cyan-500/40 bg-slate-900 aspect-video flex items-center justify-center shadow-lg">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : 'block'}`}
-            />
-
-            {isVideoOff && (
-              <div className="flex flex-col items-center gap-2">
-                <img
-                  src={user?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
-                  alt={user?.username}
-                  className="w-16 h-16 rounded-2xl object-cover ring-2 ring-cyan-500/50"
-                />
-                <span className="text-xs font-black text-white">{user?.username} (You)</span>
+        {/* Video Grid */}
+        <div className="flex-1 min-h-0 bg-slate-950 p-2 sm:p-3 relative overflow-hidden flex flex-col items-center justify-center">
+          {/* Remote Video Container */}
+          <div className="w-full h-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 relative flex items-center justify-center shadow-inner">
+            {callPeers.length > 0 ? (
+              callPeers.map((peer) => (
+                <div key={peer.socketId} className="w-full h-full relative flex items-center justify-center">
+                  <video
+                    ref={(el) => { remoteVideoRefs.current[peer.socketId] = el; }}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                  {peer.isVideoOff && (
+                    <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center space-y-2">
+                      <img
+                        src={peer.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=peer'}
+                        alt={peer.username}
+                        className="w-20 h-20 rounded-3xl ring-4 ring-pink-500/40"
+                      />
+                      <span className="text-xs font-bold text-slate-300">{peer.username} (Camera Off)</span>
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-center space-y-3 p-6 animate-pulse">
+                <div className="w-16 h-16 rounded-3xl bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-3xl mx-auto shadow-lg">
+                  📱
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white">{isInitiator ? 'Ringing Partner...' : 'Connecting Video Stream...'}</h4>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    {isInitiator ? 'Waiting for partner to answer on their device' : 'Establishing encrypted P2P video stream'}
+                  </p>
+                </div>
               </div>
             )}
 
-            <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/70 backdrop-blur-md text-[10px] font-bold text-white flex items-center gap-1.5 border border-white/10">
-              <span>{user?.username} (You)</span>
-              {isMuted && <MicOff className="w-3 h-3 text-red-400" />}
-              {isVideoOff && <VideoOff className="w-3 h-3 text-amber-400" />}
-            </div>
-          </div>
-
-          {/* Remote Peers Video Tiles */}
-          {callPeers.map((peer) => (
-            <div
-              key={peer.socketId}
-              className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 aspect-video flex items-center justify-center shadow-lg"
-            >
+            {/* Local Video Picture-in-Picture */}
+            <div className="absolute bottom-3 right-3 w-28 h-36 sm:w-36 sm:h-48 rounded-2xl overflow-hidden bg-black/80 border-2 border-emerald-500/60 shadow-2xl z-30">
               <video
-                ref={(el) => {
-                  if (el) remoteVideoRefs.current[peer.socketId] = el;
-                }}
+                ref={localVideoRef}
                 autoPlay
                 playsInline
-                className={`w-full h-full object-cover ${peer.isVideoOff ? 'hidden' : 'block'}`}
+                muted
+                className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
               />
-
-              {peer.isVideoOff && (
-                <div className="flex flex-col items-center gap-2">
-                  <img
-                    src={peer.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=peer'}
-                    alt={peer.username}
-                    className="w-16 h-16 rounded-2xl object-cover ring-2 ring-indigo-500/50"
-                  />
-                  <span className="text-xs font-black text-white">{peer.username}</span>
+              {isVideoOff && (
+                <div className="absolute inset-0 bg-slate-900 flex items-center justify-center text-xs text-slate-400 font-bold">
+                  Camera Off
                 </div>
               )}
-
-              <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-black/70 backdrop-blur-md text-[10px] font-bold text-white flex items-center gap-1.5 border border-white/10">
-                <span>{peer.username}</span>
-                {peer.isMuted && <MicOff className="w-3 h-3 text-red-400" />}
-                {peer.isVideoOff && <VideoOff className="w-3 h-3 text-amber-400" />}
-              </div>
+              <span className="absolute bottom-1 left-2 text-[9px] font-mono text-white/80 drop-shadow">
+                You
+              </span>
             </div>
-          ))}
+          </div>
         </div>
 
-        {/* Floating Call Control Bar (Bottom) */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/95 flex items-center justify-center gap-4">
+        {/* Call Controls Bar */}
+        <div className="p-3 sm:p-4 bg-slate-900/95 border-t border-slate-800 flex items-center justify-center gap-3 sm:gap-4 shrink-0 z-20">
+          {/* Mute Mic */}
           <button
             onClick={toggleMute}
-            className={`p-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition-all shadow-md ${
-              isMuted
-                ? 'bg-red-600/30 border border-red-500/40 text-red-300 hover:bg-red-600/40'
-                : 'bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800'
+            className={`p-3.5 sm:p-4 rounded-full font-bold transition-transform active:scale-95 shadow-lg ${
+              isMuted ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
             }`}
-            title={isMuted ? 'Unmute Mic' : 'Mute Mic'}
+            title={isMuted ? 'Unmute' : 'Mute'}
           >
-            {isMuted ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-            <span className="hidden sm:inline">{isMuted ? 'Unmute' : 'Mute'}</span>
+            {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
+          {/* Toggle Video Camera */}
           <button
             onClick={toggleVideo}
-            className={`p-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition-all shadow-md ${
-              isVideoOff
-                ? 'bg-amber-600/30 border border-amber-500/40 text-amber-300 hover:bg-amber-600/40'
-                : 'bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800'
+            className={`p-3.5 sm:p-4 rounded-full font-bold transition-transform active:scale-95 shadow-lg ${
+              isVideoOff ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
             }`}
-            title={isVideoOff ? 'Start Camera' : 'Stop Camera'}
+            title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
           >
-            {isVideoOff ? <VideoOff className="w-4 h-4 text-amber-400" /> : <Video className="w-4 h-4 text-cyan-400" />}
-            <span className="hidden sm:inline">{isVideoOff ? 'Camera On' : 'Camera Off'}</span>
+            {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
           </button>
 
-          {!isVideoOff && (
-            <button
-              onClick={flipCamera}
-              className="p-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition-all shadow-md bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800"
-              title="Flip Camera (Front / Rear)"
-            >
-              <SwitchCamera className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Flip</span>
-            </button>
-          )}
-
+          {/* Switch Front/Back Camera */}
           <button
-            onClick={toggleScreenShare}
-            className={`p-3.5 rounded-2xl font-bold text-xs flex items-center gap-2 transition-all shadow-md ${
-              isScreenSharing
-                ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                : 'bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800'
-            }`}
-            title={isScreenSharing ? 'Stop Screen Share' : 'Share Screen'}
+            onClick={switchCameraFacing}
+            className="p-3.5 sm:p-4 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700 transition-transform active:scale-95 shadow-lg"
+            title="Switch Camera"
           >
-            <MonitorUp className="w-4 h-4 text-purple-400" />
-            <span className="hidden sm:inline">{isScreenSharing ? 'Stop Share' : 'Share Screen'}</span>
+            <SwitchCamera className="w-5 h-5" />
           </button>
 
+          {/* End Call */}
           <button
-            onClick={handleEndCall}
-            className="p-3.5 px-6 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-red-600/40 transition-all active:scale-95"
+            onClick={() => {
+              endCall();
+              onClose();
+            }}
+            className="px-6 py-3.5 sm:px-8 sm:py-4 rounded-full bg-red-600 hover:bg-red-500 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-xl shadow-red-600/40 transition-transform active:scale-95 hover:scale-105"
+            title="End Call"
           >
-            <PhoneOff className="w-4 h-4" />
+            <PhoneOff className="w-5 h-5" />
             <span>End Call</span>
           </button>
         </div>

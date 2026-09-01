@@ -76,3 +76,76 @@ export function playSound(type = 'click') {
     }
   } catch (err) {}
 }
+
+let ringtoneInterval = null;
+let currentRingtoneOscillators = [];
+
+export function startRingtone() {
+  stopRingtone();
+
+  // Respect Calls notification setting
+  const callsAllowed = localStorage.getItem('duocore_notif_calls') !== 'false';
+  if (!callsAllowed) return () => {};
+
+  const ctx = getAudioContext();
+  if (!ctx) return () => {};
+
+  const playBurst = () => {
+    try {
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      const now = ctx.currentTime;
+
+      // Classic harmonic dual-tone ring cadence (440Hz + 480Hz)
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.frequency.setValueAtTime(440, now);
+      osc2.frequency.setValueAtTime(480, now);
+
+      gain.gain.setValueAtTime(0, now);
+      // Ring burst 1 (0 to 0.8s)
+      gain.gain.linearRampToValueAtTime(0.16, now + 0.05);
+      gain.gain.setValueAtTime(0.16, now + 0.75);
+      gain.gain.linearRampToValueAtTime(0, now + 0.8);
+      // Ring burst 2 (1.0 to 1.8s)
+      gain.gain.linearRampToValueAtTime(0.16, now + 1.05);
+      gain.gain.setValueAtTime(0.16, now + 1.75);
+      gain.gain.linearRampToValueAtTime(0, now + 1.8);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 1.85);
+      osc2.stop(now + 1.85);
+
+      currentRingtoneOscillators.push(osc1, osc2);
+    } catch (e) {}
+  };
+
+  playBurst();
+  ringtoneInterval = setInterval(playBurst, 3500);
+
+  return stopRingtone;
+}
+
+export function stopRingtone() {
+  if (ringtoneInterval) {
+    clearInterval(ringtoneInterval);
+    ringtoneInterval = null;
+  }
+  currentRingtoneOscillators.forEach((osc) => {
+    try {
+      osc.stop();
+      osc.disconnect();
+    } catch (e) {}
+  });
+  currentRingtoneOscillators = [];
+}

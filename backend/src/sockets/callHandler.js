@@ -6,32 +6,23 @@ function setupCallHandler(io, socket) {
   socket.on('call:start_call', ({ targetUserId, roomId, callType = 'video' }) => {
     if (!roomId) return;
 
+    const payload = {
+      caller: {
+        id: socket.user.id,
+        username: socket.user.username,
+        avatar_url: socket.user.avatar_url,
+        socketId: socket.id
+      },
+      roomId,
+      callType
+    };
+
     if (targetUserId) {
-      // Ring specific user
-      io.to(`user:${targetUserId}`).emit('call:incoming_ring', {
-        caller: {
-          id: socket.user.id,
-          username: socket.user.username,
-          avatar_url: socket.user.avatar_url,
-          socketId: socket.id
-        },
-        roomId,
-        callType
-      });
-      console.log(`[Call Ring] ${socket.user.username} is calling user ${targetUserId} (${callType})`);
-    } else {
-      // Ring all other room members
-      socket.to(roomId).emit('call:incoming_ring', {
-        caller: {
-          id: socket.user.id,
-          username: socket.user.username,
-          avatar_url: socket.user.avatar_url,
-          socketId: socket.id
-        },
-        roomId,
-        callType
-      });
+      io.to(`user:${targetUserId}`).emit('call:incoming_ring', payload);
     }
+    // Also emit to the room in case user is connected there
+    socket.to(roomId).emit('call:incoming_ring', payload);
+    console.log(`[Call Ring] ${socket.user.username} is calling user ${targetUserId || 'room'} (${callType}) in room ${roomId}`);
   });
 
   // 2. Reject / Decline Call

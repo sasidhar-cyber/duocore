@@ -158,7 +158,8 @@ export function ChatView({ onBack, onOpenInvite }) {
     removePartner,
     clearChatMessages,
     panicClearMessages,
-    deleteSingleMessage
+    deleteSingleMessage,
+    startOutgoingCall
   } = useRoom();
 
   const { playTrack, openNowPlaying, currentTrack, isPlaying, togglePlay } = useMusic();
@@ -579,27 +580,11 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   // Calls
   const startVideoCall = () => {
-    const s = getSocket();
-    if (s && roomData?.id) {
-      s.emit('call:start_call', {
-        targetUserId: otherPartner?.id,
-        roomId: roomData.id,
-        callType: 'video'
-      });
-    }
-    setVideoCallOpen(true);
+    startOutgoingCall('video');
   };
 
   const startAudioCall = () => {
-    const s = getSocket();
-    if (s && roomData?.id) {
-      s.emit('call:start_call', {
-        targetUserId: otherPartner?.id,
-        roomId: roomData.id,
-        callType: 'audio'
-      });
-    }
-    setAudioCallOpen(true);
+    startOutgoingCall('audio');
   };
 
   // Search Navigation
@@ -1615,35 +1600,7 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* Modals for Calling, Theme, Media & Camera */}
-      {videoCallOpen && (
-        <VideoCallModal isOpen={videoCallOpen} onClose={() => setVideoCallOpen(false)} />
-      )}
-
-      {audioCallOpen && (
-        <AudioCallModal isOpen={audioCallOpen} onClose={() => setAudioCallOpen(false)} />
-      )}
-
-      {incomingCall && (
-        <IncomingCallModal
-          incomingCall={incomingCall}
-          onAccept={() => {
-            if (incomingCall.callType === 'video') setVideoCallOpen(true);
-            else setAudioCallOpen(true);
-            setIncomingCall(null);
-          }}
-          onDecline={() => {
-            const s = getSocket();
-            if (s) {
-              s.emit('call:decline_call', {
-                callerSocketId: incomingCall.caller?.socketId,
-                roomId: roomData?.id
-              });
-            }
-            setIncomingCall(null);
-          }}
-        />
-      )}
+      {/* Modals for Camera, Theme & Media */}
 
       {cameraModalOpen && (
         <CameraCaptureModal

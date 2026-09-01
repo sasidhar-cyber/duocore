@@ -28,6 +28,11 @@ export function RoomProvider({ children }) {
   const [goals, setGoals] = useState([]);
   const [timerState, setTimerState] = useState(null);
 
+  // Global WebRTC Calling State (Accessible across whole app)
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [activeCallModal, setActiveCallModal] = useState(null); // 'video' | 'audio' | null
+  const [isCallInitiator, setIsCallInitiator] = useState(false);
+
   const currentRoomIdRef = useRef(null);
 
   // Load active squad / room state from backend
@@ -298,6 +303,25 @@ export function RoomProvider({ children }) {
       }
     };
 
+    const handleIncomingRing = (callData) => {
+      if (callData.caller?.id === user?.id) return;
+      setIncomingCall(callData);
+      if (localStorage.getItem('duocore_notif_calls') !== 'false') {
+        if (document.hidden) {
+          showBrowserNotification(`Incoming ${callData.callType === 'video' ? 'HD Video' : 'Audio'} Call`, {
+            body: `${callData.caller?.username || 'Duo Partner'} is calling you on DuoCore...`,
+            tag: 'duocore-call'
+          });
+        }
+      }
+    };
+
+    const handleCallDeclined = (data) => {
+      alert(`${data.username || 'Partner'} declined the call.`);
+      setActiveCallModal(null);
+      setIncomingCall(null);
+    };
+
     s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
     s.on('chat:message_deleted', handleMessageDeleted);
@@ -314,6 +338,8 @@ export function RoomProvider({ children }) {
     s.on('timer:state_sync', handleTimerSync);
     s.on('chat:reaction_updated', handleReaction);
     s.on('chat:room_cleared', handleRoomCleared);
+    s.on('call:incoming_ring', handleIncomingRing);
+    s.on('call:declined', handleCallDeclined);
 
     return () => {
       s.off('connect', handleSocketConnect);
@@ -332,6 +358,8 @@ export function RoomProvider({ children }) {
       s.off('timer:state_sync', handleTimerSync);
       s.off('chat:reaction_updated', handleReaction);
       s.off('chat:room_cleared', handleRoomCleared);
+      s.off('call:incoming_ring', handleIncomingRing);
+      s.off('call:declined', handleCallDeclined);
     };
   }, [user?.id, refreshPartnerState]);
 
@@ -454,6 +482,51 @@ export function RoomProvider({ children }) {
     }
   };
 
+  const startOutgoingCall = (callType = 'video') => {
+    if (!roomData?.id) return;
+    const target = partner || members.find((m) => m.id !== user?.id);
+    const s = getSocket();
+    if (s && s.connected) {
+      s.emit('call:start_call', {
+        targetUserId: target?.id,
+        roomId: roomData.id,
+        callType
+      });
+    }
+    setIsCallInitiator(true);
+    setActiveCallModal(callType);
+  };
+
+  const acceptIncomingCall = () => {
+    if (!incomingCall) return;
+    const type = incomingCall.callType || 'video';
+    setIncomingCall(null);
+    setIsCallInitiator(false);
+    setActiveCallModal(type);
+  };
+
+  const declineIncomingCall = () => {
+    if (!incomingCall) return;
+    const s = getSocket();
+    if (s && s.connected) {
+      s.emit('call:decline_call', {
+        callerSocketId: incomingCall.caller?.socketId,
+        targetUserId: incomingCall.caller?.id,
+        roomId: incomingCall.roomId || roomData?.id
+      });
+    }
+    setIncomingCall(null);
+  };
+
+  const endActiveCall = () => {
+    const s = getSocket();
+    if (s && s.connected && roomData?.id) {
+      s.emit('call:leave', { roomId: roomData.id });
+    }
+    setActiveCallModal(null);
+    setIncomingCall(null);
+  };
+
   return (
     <RoomContext.Provider
       value={{
@@ -470,6 +543,9 @@ export function RoomProvider({ children }) {
         partnerTyping,
         goals,
         timerState,
+        incomingCall,
+        activeCallModal,
+        isCallInitiator,
         refreshPartnerState,
         createInvite,
         cancelInvite,
@@ -480,6 +556,11 @@ export function RoomProvider({ children }) {
         clearChatMessages,
         panicClearMessages,
         deleteSingleMessage,
+        startOutgoingCall,
+        acceptIncomingCall,
+        declineIncomingCall,
+        endActiveCall,
+        setActiveCallModal,
         setActiveChannel
       }}
     >

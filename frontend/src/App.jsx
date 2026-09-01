@@ -16,12 +16,23 @@ import { InviteModal } from './components/InviteModal';
 import { PinUnlockModal } from './components/PinUnlockModal';
 import { NetworkStatusBanner } from './components/NetworkStatusBanner';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { IncomingCallModal } from './components/IncomingCallModal';
+import { VideoCallModal } from './components/VideoCallModal';
+import { AudioCallModal } from './components/AudioCallModal';
 import { AuthPage } from './pages/AuthPage';
 import api from './services/api';
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const { refreshPartnerState } = useRoom();
+  const {
+    refreshPartnerState,
+    incomingCall,
+    activeCallModal,
+    isCallInitiator,
+    acceptIncomingCall,
+    declineIncomingCall,
+    endActiveCall
+  } = useRoom();
   const { isNowPlayingOpen, closeNowPlaying, playTrack, currentTrack } = useMusic();
   const [authOpen, setAuthOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('music'); // 'music' | 'chat'
@@ -128,6 +139,33 @@ function AppContent() {
           isOpen={inviteModalOpen}
           onClose={() => setInviteModalOpen(false)}
         />
+
+        {/* Global Incoming WebRTC Ringing Modal */}
+        {incomingCall && (
+          <IncomingCallModal
+            incomingCall={incomingCall}
+            onAccept={acceptIncomingCall}
+            onDecline={declineIncomingCall}
+          />
+        )}
+
+        {/* Global Video Call Modal */}
+        {activeCallModal === 'video' && (
+          <VideoCallModal
+            isOpen={true}
+            isInitiator={isCallInitiator}
+            onClose={endActiveCall}
+          />
+        )}
+
+        {/* Global Audio Call Modal */}
+        {activeCallModal === 'audio' && (
+          <AudioCallModal
+            isOpen={true}
+            isInitiator={isCallInitiator}
+            onClose={endActiveCall}
+          />
+        )}
       </div>
     );
   }
@@ -184,6 +222,33 @@ function AppContent() {
           setActiveTab('chat');
         }}
       />
+
+      {/* Global Incoming WebRTC Ringing Modal */}
+      {incomingCall && (
+        <IncomingCallModal
+          incomingCall={incomingCall}
+          onAccept={acceptIncomingCall}
+          onDecline={declineIncomingCall}
+        />
+      )}
+
+      {/* Global Video Call Modal */}
+      {activeCallModal === 'video' && (
+        <VideoCallModal
+          isOpen={true}
+          isInitiator={isCallInitiator}
+          onClose={endActiveCall}
+        />
+      )}
+
+      {/* Global Audio Call Modal */}
+      {activeCallModal === 'audio' && (
+        <AudioCallModal
+          isOpen={true}
+          isInitiator={isCallInitiator}
+          onClose={endActiveCall}
+        />
+      )}
     </div>
   );
 }

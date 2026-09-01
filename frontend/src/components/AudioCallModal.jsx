@@ -8,7 +8,6 @@ import {
   PhoneOff,
   Volume2,
   VolumeX,
-  PhoneCall,
   Sparkles
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
@@ -16,27 +15,34 @@ import { playSound } from '../utils/soundEffects';
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
-export function AudioCallModal({ isOpen, onClose, targetFriend }) {
+export function AudioCallModal({ isOpen, onClose, isInitiator = false }) {
   const { user } = useAuth();
-  const { roomData } = useRoom();
+  const { roomData, partner, members } = useRoom();
+
+  const otherPartner = partner || members.find((m) => m.id !== user?.id) || {
+    username: 'Duo Partner'
+  };
 
   const [inCall, setInCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
-  const [callStatus, setCallStatus] = useState('Connecting...');
+  const [callStatus, setCallStatus] = useState(isInitiator ? 'Calling...' : 'Connecting...');
 
   const localStreamRef = useRef(null);
   const peerConnections = useRef({}); // socketId -> RTCPeerConnection
   const remoteAudioRefs = useRef({});
+  const pendingCandidates = useRef({});
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (isOpen && !inCall) {
+    if (isOpen) {
       startAudioCall();
     }
 
@@ -48,12 +54,12 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
   const startAudioCall = async () => {
     if (!roomData) return;
     try {
-      setCallStatus('Connecting audio...');
+      setCallStatus(isInitiator ? 'Ringing partner...' : 'Connecting audio...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
 
       setInCall(true);
-      setCallStatus('Connected');
+      playSound('quiz_correct');
 
       // Start elapsed timer
       timerRef.current = setInterval(() => {
@@ -79,6 +85,7 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
 
     Object.values(peerConnections.current).forEach((pc) => pc.close());
     peerConnections.current = {};
+    pendingCandidates.current = {};
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -92,6 +99,7 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
 
     setInCall(false);
     setCallDuration(0);
+    setCallStatus('Ended');
   };
 
   const createPeerConnection = (remoteSocketId, remoteUser) => {
@@ -103,7 +111,7 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
     peerConnections.current[remoteSocketId] = pc;
 
     if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
+      localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current);
       });
     }
@@ -120,21 +128,32 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
       }
     };
 
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        setCallStatus('Connected');
+      } else if (state === 'connecting') {
+        setCallStatus('Connecting...');
+      } else if (state === 'disconnected' || state === 'failed') {
+        setCallStatus('Reconnecting...');
+      } else if (state === 'closed') {
+        setCallStatus('Ended');
+      }
+    };
+
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
-      let audioEl = remoteAudioRefs.current[remoteSocketId];
-      if (!audioEl) {
-        audioEl = document.createElement('audio');
-        audioEl.autoplay = true;
-        remoteAudioRefs.current[remoteSocketId] = audioEl;
+      const audioEl = remoteAudioRefs.current[remoteSocketId];
+      if (audioEl && remoteStream) {
+        audioEl.srcObject = remoteStream;
+        setCallStatus('Connected');
       }
-      audioEl.srcObject = remoteStream;
     };
 
     return pc;
   };
 
-  // WebRTC signaling
+  // Socket signaling listeners
   useEffect(() => {
     const s = getSocket();
     if (!s) return;
@@ -152,8 +171,25 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
             isMuted
           });
         } catch (err) {
-          console.error('[AudioCall] Offer error:', err);
+          console.error('[WebRTC Audio] Error creating offer:', err);
         }
+      }
+    };
+
+    const handlePeerJoined = async ({ member }) => {
+      playSound('message');
+      const pc = createPeerConnection(member.socketId, member);
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        s.emit('call:offer', {
+          toSocketId: member.socketId,
+          offer,
+          isVideoOff: true,
+          isMuted
+        });
+      } catch (err) {
+        console.error('[WebRTC Audio] Error offering new peer:', err);
       }
     };
 
@@ -161,6 +197,16 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
       const pc = createPeerConnection(fromSocketId, fromUser);
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+        if (pendingCandidates.current[fromSocketId]) {
+          for (const cand of pendingCandidates.current[fromSocketId]) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (e) {}
+          }
+          delete pendingCandidates.current[fromSocketId];
+        }
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         s.emit('call:answer', {
@@ -168,7 +214,7 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
           answer
         });
       } catch (err) {
-        console.error('[AudioCall] Answer error:', err);
+        console.error('[WebRTC Audio] Error handling offer:', err);
       }
     };
 
@@ -177,16 +223,35 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (err) {}
+
+          if (pendingCandidates.current[fromSocketId]) {
+            for (const cand of pendingCandidates.current[fromSocketId]) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (e) {}
+            }
+            delete pendingCandidates.current[fromSocketId];
+          }
+        } catch (err) {
+          console.error('[WebRTC Audio] Error setting remote description:', err);
+        }
       }
     };
 
     const handleIceCandidate = async ({ fromSocketId, candidate }) => {
       const pc = peerConnections.current[fromSocketId];
-      if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {}
+      if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
+        if (!pendingCandidates.current[fromSocketId]) {
+          pendingCandidates.current[fromSocketId] = [];
+        }
+        pendingCandidates.current[fromSocketId].push(candidate);
+        return;
+      }
+
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error('[WebRTC Audio] Error adding ICE candidate:', err);
       }
     };
 
@@ -198,6 +263,7 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
     };
 
     s.on('call:existing_peers', handleExistingPeers);
+    s.on('call:peer_joined', handlePeerJoined);
     s.on('call:offer_received', handleOfferReceived);
     s.on('call:answer_received', handleAnswerReceived);
     s.on('call:ice_candidate_received', handleIceCandidate);
@@ -205,121 +271,106 @@ export function AudioCallModal({ isOpen, onClose, targetFriend }) {
 
     return () => {
       s.off('call:existing_peers', handleExistingPeers);
+      s.off('call:peer_joined', handlePeerJoined);
       s.off('call:offer_received', handleOfferReceived);
       s.off('call:answer_received', handleAnswerReceived);
       s.off('call:ice_candidate_received', handleIceCandidate);
       s.off('call:peer_left', handlePeerLeft);
     };
-  }, [isMuted]);
+  }, []);
 
   const toggleMute = () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        setIsMuted(!audioTrack.enabled);
+        const nextMuted = !audioTrack.enabled;
+        setIsMuted(nextMuted);
+
         const s = getSocket();
         if (s && roomData) {
-          s.emit('call:toggle_audio', { roomId: roomData.id, isMuted: !audioTrack.enabled });
+          s.emit('call:toggle_audio', { roomId: roomData.id, isMuted: nextMuted });
         }
       }
     }
   };
 
   const formatDuration = (sec) => {
-    const mins = Math.floor(sec / 60);
-    const secs = sec % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-2xl animate-in fade-in select-none">
-      <div className="w-full max-w-sm glass-panel p-6 sm:p-8 rounded-3xl border border-emerald-500/40 shadow-2xl text-center space-y-6 bg-slate-950/95 relative overflow-hidden">
-        {/* Glowing Background Pulse */}
-        <div className="absolute -top-16 -left-16 w-36 h-36 bg-emerald-500/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-16 -right-16 w-36 h-36 bg-cyan-500/20 rounded-full blur-3xl animate-pulse" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in select-none">
+      <div className="w-full max-w-sm glass-panel p-6 sm:p-8 rounded-3xl border border-emerald-500/50 shadow-2xl text-center space-y-6 bg-slate-950/95 relative overflow-hidden">
+        {/* Hidden Audio Elements for Remote Audio */}
+        {Object.keys(peerConnections.current).map((remoteId) => (
+          <audio
+            key={remoteId}
+            ref={(el) => { remoteAudioRefs.current[remoteId] = el; }}
+            autoPlay
+            playsInline
+          />
+        ))}
 
-        {/* Header Title */}
-        <div className="relative flex items-center justify-center gap-2 text-emerald-400 text-xs font-bold font-mono tracking-wider">
-          <PhoneCall className="w-4 h-4 animate-bounce" />
-          <span>DUOCORE VOICE CALL (ENCRYPTED)</span>
-        </div>
-
-        {/* Avatar with Soundwave Rings */}
-        <div className="relative py-4">
-          <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
+        <div className="relative space-y-3">
+          <div className="relative w-24 h-24 mx-auto">
             <div className="absolute inset-0 rounded-full bg-emerald-500/20 animate-ping" />
-            <div className="absolute -inset-3 rounded-full bg-emerald-500/10 animate-pulse delay-75" />
             <img
-              src={targetFriend?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=friend'}
-              alt={targetFriend?.username || 'Friend'}
-              className="w-28 h-28 rounded-full object-cover ring-4 ring-emerald-500/50 shadow-2xl relative z-10"
+              src={otherPartner.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=partner'}
+              alt={otherPartner.username}
+              className="w-24 h-24 rounded-full object-cover ring-4 ring-emerald-500/60 shadow-2xl relative z-10"
             />
           </div>
 
-          <div className="mt-4 space-y-1">
-            <h3 className="text-lg font-black text-white">{targetFriend?.username || 'Squad Friend'}</h3>
-            <p className="text-xs text-emerald-300 font-mono font-bold">
-              {callStatus === 'Connected' ? formatDuration(callDuration) : callStatus}
+          <div>
+            <h3 className="text-lg font-black text-white">{otherPartner.username}</h3>
+            <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
+              callStatus === 'Connected'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 animate-pulse'
+            }`}>
+              {callStatus}
+            </span>
+            <p className="text-xs text-slate-400 font-mono mt-1">
+              {callStatus === 'Connected' ? `Duration: ${formatDuration(callDuration)}` : '1v1 Encrypted HD Voice'}
             </p>
-          </div>
-
-          {/* Animated Audio Equalizer Waveform */}
-          <div className="flex items-center justify-center gap-1.5 h-8 mt-4">
-            {[40, 75, 30, 95, 60, 100, 50, 85, 40, 90, 35, 70].map((h, i) => (
-              <div
-                key={i}
-                className="w-1.5 rounded-full bg-gradient-to-t from-emerald-500 to-cyan-400 animate-pulse"
-                style={{
-                  height: `${isMuted ? 10 : Math.max(20, (h * Math.random()).toFixed(0))}%`,
-                  animationDelay: `${i * 80}ms`
-                }}
-              />
-            ))}
           </div>
         </div>
 
-        {/* Call Controls */}
-        <div className="flex items-center justify-center gap-4 pt-2">
-          {/* Mute Button */}
-          <button
-            onClick={toggleMute}
-            className={`p-3.5 rounded-2xl border transition-all ${
-              isMuted
-                ? 'bg-red-950/60 border-red-500 text-red-400'
-                : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
-            }`}
-            title={isMuted ? 'Unmute Mic' : 'Mute Mic'}
-          >
-            {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-          </button>
+        {/* Action Controls */}
+        <div className="flex items-center justify-center gap-6 pt-2">
+          {/* Mute Mic */}
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              onClick={toggleMute}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 ${
+                isMuted ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+              title={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+            </button>
+            <span className="text-[11px] font-bold text-slate-400">{isMuted ? 'Muted' : 'Mute'}</span>
+          </div>
 
-          {/* End Call Button */}
-          <button
-            onClick={() => {
-              endAudioCall();
-              onClose();
-            }}
-            className="p-4 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-600/40 transition-transform active:scale-95 hover:scale-105"
-            title="End Call"
-          >
-            <PhoneOff className="w-6 h-6" />
-          </button>
-
-          {/* Speaker Button */}
-          <button
-            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-            className={`p-3.5 rounded-2xl border transition-all ${
-              isSpeakerOn
-                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-400'
-                : 'bg-slate-900 border-slate-800 text-slate-400'
-            }`}
-            title={isSpeakerOn ? 'Speaker On' : 'Speaker Off'}
-          >
-            {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-          </button>
+          {/* End Call */}
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              onClick={() => {
+                endAudioCall();
+                onClose();
+              }}
+              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-600/40 transition-transform active:scale-95 hover:scale-105"
+              title="End Call"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </button>
+            <span className="text-[11px] font-bold text-red-400">End</span>
+          </div>
         </div>
       </div>
     </div>

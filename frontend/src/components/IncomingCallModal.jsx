@@ -1,15 +1,14 @@
 import React, { useEffect } from 'react';
 import { Phone, PhoneOff, Video, Mic } from 'lucide-react';
-import { playSound } from '../utils/soundEffects';
+import { startRingtone, stopRingtone } from '../utils/soundEffects';
 
 export function IncomingCallModal({ incomingCall, onAccept, onDecline }) {
   useEffect(() => {
     if (incomingCall) {
-      playSound('message');
-      const ringInterval = setInterval(() => {
-        playSound('message');
-      }, 3000);
-      return () => clearInterval(ringInterval);
+      startRingtone();
+      return () => {
+        stopRingtone();
+      };
     }
   }, [incomingCall]);
 
