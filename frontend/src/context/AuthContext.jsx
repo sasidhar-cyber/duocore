@@ -23,23 +23,23 @@ export function AuthProvider({ children }) {
           return;
         } catch (err) {
           localStorage.removeItem('duocore_token');
+          setToken(null);
+          setUser(null);
         }
-      }
-
-      // Auto-initialize collision-free guest session so chat, sockets, and rooms work immediately
-      try {
-        const guestRes = await api.guestLogin();
-        localStorage.setItem('duocore_token', guestRes.token);
-        setUser(guestRes.user);
-        setToken(guestRes.token);
-        connectSocket(guestRes.token);
-      } catch (e) {
-        console.warn('Guest initialization error:', e);
       }
       setLoading(false);
     }
     loadUser();
   }, []);
+
+  const guestLogin = async () => {
+    const res = await api.guestLogin();
+    localStorage.setItem('duocore_token', res.token);
+    setToken(res.token);
+    setUser(res.user);
+    connectSocket(res.token);
+    return res;
+  };
 
   const login = async (arg1, arg2) => {
     let payload = typeof arg1 === 'object' ? arg1 : { usernameOrEmail: arg1, password: arg2 };
@@ -86,6 +86,7 @@ export function AuthProvider({ children }) {
         soundEnabled,
         login,
         register,
+        guestLogin,
         logout,
         toggleSound
       }}

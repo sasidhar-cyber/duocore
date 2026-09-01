@@ -99,15 +99,16 @@ function AppContent() {
           />
           <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-xs font-mono tracking-widest uppercase text-emerald-400 font-bold">
-            SoundWave Starting...
+            DuoCore Starting...
           </span>
         </div>
       </div>
     );
   }
 
-  if (authOpen && !user) {
-    return <AuthPage onAuthenticated={() => setAuthOpen(false)} />;
+  // LOGIN-FIRST EXPERIENCE: Show AuthPage if not authenticated
+  if (!user) {
+    return <AuthPage onAuthenticated={() => {}} />;
   }
 
   // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT

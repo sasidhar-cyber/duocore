@@ -42,7 +42,8 @@ import {
   Share2,
   UserPlus,
   Sparkles,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Loader2
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -100,32 +101,34 @@ function AudioMemoPlayer({ fileUrl }) {
             style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
           />
         </div>
-        <div className="flex justify-between text-[10px] font-mono text-slate-400">
+        <div className="flex justify-between text-[9px] font-mono text-slate-400">
           <span>{formatSecs(currentTime)}</span>
-          <span>{formatSecs(duration)}</span>
+          <span>{duration ? formatSecs(duration) : '0:00'}</span>
         </div>
       </div>
     </div>
   );
 }
 
-export function ChatView({ onOpenInvite, onBack }) {
+export function ChatView({ onBack, onOpenInvite }) {
   const { user } = useAuth();
   const {
     roomData,
     members,
-    partner,
-    hasPartner,
     normalMessages,
     sendMessage,
     partnerTyping,
     sendTyping,
-    refreshPartnerState
+    hasPartner,
+    partner,
+    refreshPartnerState,
+    removePartner,
+    panicClearMessages
   } = useRoom();
 
   const { playTrack, openNowPlaying, currentTrack, isPlaying, togglePlay } = useMusic();
 
-  const otherPartner = partner || (members && members.find((m) => m && m.id !== user?.id)) || {
+  const otherPartner = partner || members.find((m) => m.id !== user?.id) || {
     id: 'partner-default',
     username: 'Duo Partner',
     is_online: false,
@@ -136,6 +139,8 @@ export function ChatView({ onOpenInvite, onBack }) {
   const [replyTo, setReplyTo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [previewImageModal, setPreviewImageModal] = useState(null);
 
   // Invite & Pairing Form State
   const [lobbyMode, setLobbyMode] = useState('select'); // 'select' | 'create' | 'join'
@@ -168,6 +173,7 @@ export function ChatView({ onOpenInvite, onBack }) {
   // Search in Chat
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
 
   // Media Gallery & Starred Drawers
   const [mediaGalleryOpen, setMediaGalleryOpen] = useState(false);
@@ -198,10 +204,41 @@ export function ChatView({ onOpenInvite, onBack }) {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Auto Scroll to Bottom on New Message
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [normalMessages, partnerTyping]);
+  }, [normalMessages.length, partnerTyping]);
+
+  // Mark messages as read when chat is active
+  useEffect(() => {
+    if (roomData?.id) {
+      api.markMessagesRead(roomData.id, { channel: 'normal' }).catch(() => {});
+    }
+  }, [roomData?.id, normalMessages.length]);
+
+  // WebRTC Incoming Call Listener
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+
+    const handleIncomingRing = (callData) => {
+      setIncomingCall(callData);
+    };
+
+    const handleCallDeclined = () => {
+      alert('Call was declined');
+      setVideoCallOpen(false);
+      setAudioCallOpen(false);
+    };
+
+    s.on('call:incoming_ring', handleIncomingRing);
+    s.on('call:declined', handleCallDeclined);
+
+    return () => {
+      s.off('call:incoming_ring', handleIncomingRing);
+      s.off('call:declined', handleCallDeclined);
+    };
+  }, []);
 
   // Load Pinned & Starred Messages on Mount
   useEffect(() => {
@@ -221,14 +258,13 @@ export function ChatView({ onOpenInvite, onBack }) {
     setJoinError('');
 
     try {
-      // Ensure session exists before connecting
       let token = localStorage.getItem('duocore_token');
       if (!token) {
         const guestRes = await api.guestLogin();
         localStorage.setItem('duocore_token', guestRes.token);
       }
 
-      const joinRes = await api.joinDuoRoom(inputCode.trim());
+      await api.joinDuoRoom(inputCode.trim());
       await refreshPartnerState();
       setInputCode('');
       setLobbyMode('create');
@@ -252,7 +288,7 @@ export function ChatView({ onOpenInvite, onBack }) {
   const handleCopyWhatsApp = () => {
     if (!roomData?.code) return;
     const url = `${window.location.origin}/?invite=${roomData.code}`;
-    const text = `Hey! Join my private 1v1 Duo Chat on SoundWave here: ${url}`;
+    const text = `Hey! Join my private 1v1 Duo Chat on DuoCore here: ${url}`;
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -264,13 +300,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // Handle Typing Indicator
-  const handleTextChange = (e) => {
-    setMessageText(e.target.value);
-    sendTyping('normal', true);
-  };
-
-  // Send Message
+  // Send Text Message
   const handleSendMessage = (e) => {
     e?.preventDefault();
     if (!messageText.trim()) return;
@@ -283,53 +313,53 @@ export function ChatView({ onOpenInvite, onBack }) {
 
     setMessageText('');
     setReplyTo(null);
-    sendTyping('normal', false);
+    sendTyping(false, 'normal');
     try { playSound('send'); } catch {}
   };
 
-  // Send Location
-  const executeSendLocation = () => {
-    setLocationConfirmOpen(false);
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        sendMessage({
-          text: `📍 Shared Live Location: https://www.google.com/maps?q=${latitude},${longitude}`,
-          channel: 'normal'
-        });
-        try { playSound('send'); } catch {}
-      },
-      () => alert('Unable to retrieve location.')
-    );
-  };
-
-  // Send Camera / File Upload
+  // Send File Upload with guaranteed progress & error handling
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 25 * 1024 * 1024) {
+      alert('File size exceeds 25MB limit. Please choose a smaller file.');
+      return;
+    }
+
+    setUploadingMedia(true);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
       const res = await api.uploadFile(roomData?.id, formData);
-      sendMessage({
-        text: file.type.startsWith('image/') ? '📷 Photo' : '📎 Attachment',
+      const isImg = file.type.startsWith('image/');
+      const isVid = file.type.startsWith('video/');
+      const isAud = file.type.startsWith('audio/');
+
+      await sendMessage({
+        text: isImg ? '📷 Photo' : isVid ? '🎥 Video' : isAud ? '🎵 Audio' : `📎 ${file.name}`,
         channel: 'normal',
-        metadata: { fileUrl: res.fileUrl, fileType: file.type }
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, username: replyTo.username } : null,
+        metadata: {
+          fileUrl: res.fileUrl,
+          fileType: file.type,
+          fileName: file.name,
+          fileSize: file.size
+        }
       });
+
+      setReplyTo(null);
       try { playSound('send'); } catch {}
     } catch (err) {
-      alert('Failed to upload file.');
+      alert(err.message || 'Failed to upload file.');
+    } finally {
+      setUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Send Voice Note
+  // Voice Note Recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -347,7 +377,7 @@ export function ChatView({ onOpenInvite, onBack }) {
 
         try {
           const res = await api.uploadFile(roomData?.id, formData);
-          sendMessage({
+          await sendMessage({
             text: '🎤 Voice Note',
             channel: 'normal',
             metadata: { fileUrl: res.fileUrl, fileType: 'audio/webm' }
@@ -388,7 +418,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     }
   };
 
-  // Star / Pin / Delete Message
+  // Star / Pin / Delete
   const handleToggleStar = async (msg) => {
     if (!roomData?.id) return;
     try {
@@ -427,7 +457,7 @@ export function ChatView({ onOpenInvite, onBack }) {
     } catch {}
   };
 
-  // Open Starred Messages
+  // Open Starred
   const handleOpenStarred = async () => {
     if (!roomData?.id) return;
     try {
@@ -437,38 +467,122 @@ export function ChatView({ onOpenInvite, onBack }) {
     } catch {}
   };
 
-  // Filter messages based on chat search query
-  const displayedMessages = useMemo(() => {
-    const list = normalMessages || [];
-    if (!searchQuery.trim()) return list;
-    return list.filter((m) =>
-      m?.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m?.username?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [normalMessages, searchQuery]);
-
-  // Unpair / Disconnect from Partner
+  // Unpair
   const handleUnpair = async () => {
-    if (window.confirm('Are you sure you want to disconnect from this Duo room?')) {
+    if (window.confirm('Are you sure you want to disconnect from this 1v1 room?')) {
       try {
-        await api.leaveRoom(roomData?.id);
-        await refreshPartnerState();
+        await removePartner();
+      } catch {}
+    }
+  };
+
+  // Panic Clear
+  const handlePanicClear = async () => {
+    if (window.confirm('🚨 EMERGENCY CLEAR: Erase all messages from server & partner screen immediately?')) {
+      try {
+        await panicClearMessages('normal');
         try { playSound('quiz_wrong'); } catch {}
-      } catch (err) {
-        await refreshPartnerState();
+      } catch {}
+    }
+  };
+
+  // Share Live Location
+  const executeSendLocation = () => {
+    setLocationConfirmOpen(false);
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        sendMessage({
+          text: `📍 Shared Live Location: ${mapsUrl}`,
+          channel: 'normal',
+          metadata: { latitude, longitude, mapsUrl }
+        });
+        try { playSound('send'); } catch {}
+      },
+      (err) => {
+        alert('Could not retrieve GPS location: ' + err.message);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Call triggers with signaling
+  const startVideoCall = () => {
+    const s = getSocket();
+    if (s && roomData?.id) {
+      s.emit('call:start_call', {
+        targetUserId: otherPartner?.id,
+        roomId: roomData.id,
+        callType: 'video'
+      });
+    }
+    setVideoCallOpen(true);
+  };
+
+  const startAudioCall = () => {
+    const s = getSocket();
+    if (s && roomData?.id) {
+      s.emit('call:start_call', {
+        targetUserId: otherPartner?.id,
+        roomId: roomData.id,
+        callType: 'audio'
+      });
+    }
+    setAudioCallOpen(true);
+  };
+
+  // In-Chat Search Navigation
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return normalMessages.filter((m) =>
+      (m.text && m.text.toLowerCase().includes(q)) ||
+      (m.username && m.username.toLowerCase().includes(q))
+    );
+  }, [searchQuery, normalMessages]);
+
+  const handleNextSearch = () => {
+    if (searchResults.length === 0) return;
+    const nextIdx = (searchIndex + 1) % searchResults.length;
+    setSearchIndex(nextIdx);
+    const target = searchResults[nextIdx];
+    if (target) {
+      const el = document.getElementById(`msg-${target.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-yellow-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-yellow-400'), 1500);
+      }
+    }
+  };
+
+  const handlePrevSearch = () => {
+    if (searchResults.length === 0) return;
+    const prevIdx = (searchIndex - 1 + searchResults.length) % searchResults.length;
+    setSearchIndex(prevIdx);
+    const target = searchResults[prevIdx];
+    if (target) {
+      const el = document.getElementById(`msg-${target.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-yellow-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-yellow-400'), 1500);
       }
     }
   };
 
   const currentThemeObj = CHAT_THEMES.find((t) => t.id === chatTheme) || CHAT_THEMES[0];
-  const isPartnerTyping = partnerTyping?.normal;
   const partnerAvatar = otherPartner?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(otherPartner?.username || 'partner')}`;
 
   return (
     <div className={`h-full w-full flex flex-col ${currentThemeObj.bg} rounded-3xl border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}>
-      {/* ========================================================================= */}
-      {/* 1. WHATSAPP STYLE 1v1 HEADER                                              */}
-      {/* ========================================================================= */}
+      {/* 1. WHATSAPP STYLE 1v1 HEADER */}
       <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           {onBack && (
@@ -513,7 +627,7 @@ export function ChatView({ onOpenInvite, onBack }) {
             </h4>
             <p className="text-[11px] font-mono truncate">
               {hasPartner ? (
-                isPartnerTyping ? (
+                partnerTyping?.normal ? (
                   <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
                 ) : otherPartner?.is_online ? (
                   <span className="text-emerald-400 font-medium">Online</span>
@@ -529,7 +643,6 @@ export function ChatView({ onOpenInvite, onBack }) {
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* Mini Music Controller Chip in Chat Header */}
           {currentTrack && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-emerald-500/30 text-emerald-400 max-w-[130px] sm:max-w-[190px]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
@@ -553,16 +666,18 @@ export function ChatView({ onOpenInvite, onBack }) {
           </button>
 
           <button
-            onClick={() => setAudioCallOpen(true)}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95"
+            onClick={startAudioCall}
+            disabled={!hasPartner}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
             title="Start Audio Call"
           >
             <Phone className="w-4 h-4" />
           </button>
 
           <button
-            onClick={() => setVideoCallOpen(true)}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95"
+            onClick={startVideoCall}
+            disabled={!hasPartner}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
             title="Start HD Video Call"
           >
             <Video className="w-4 h-4" />
@@ -590,7 +705,7 @@ export function ChatView({ onOpenInvite, onBack }) {
                   onClick={() => { handleOpenStarred(); setMenuOpen(false); }}
                   className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
                 >
-                  <Star className="w-4 h-4 text-yellow-400" />
+                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
                   <span>Starred Messages</span>
                 </button>
 
@@ -598,57 +713,84 @@ export function ChatView({ onOpenInvite, onBack }) {
                   onClick={() => { setThemePickerOpen(true); setMenuOpen(false); }}
                   className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
                 >
-                  <Palette className="w-4 h-4 text-emerald-400" />
-                  <span>Chat Theme</span>
+                  <Palette className="w-4 h-4 text-pink-400" />
+                  <span>Change Theme</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    handleCopyCode();
-                    setMenuOpen(false);
-                  }}
-                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
-                >
-                  <Copy className="w-4 h-4 text-emerald-400" />
-                  <span>Copy Duo Code ({roomData?.code})</span>
-                </button>
+                {hasPartner && (
+                  <button
+                    onClick={() => { handlePanicClear(); setMenuOpen(false); }}
+                    className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-yellow-400 hover:bg-yellow-500/20 flex items-center gap-2"
+                  >
+                    <span>🚨</span>
+                    <span>Emergency Clear Chat</span>
+                  </button>
+                )}
 
-                <div className="h-px bg-slate-800 my-1" />
-
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    handleUnpair();
-                  }}
-                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-red-400 hover:bg-red-950/40 flex items-center gap-2"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Disconnect / Unpair</span>
-                </button>
+                {hasPartner && (
+                  <button
+                    onClick={() => { handleUnpair(); setMenuOpen(false); }}
+                    className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-red-400 hover:bg-red-500/20 flex items-center gap-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Unpair Room</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Inline Search Bar */}
+      {/* In-Chat Search Bar */}
       {searchOpen && (
-        <div className="p-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-2 animate-in slide-in-from-top-2">
-          <Search className="w-4 h-4 text-slate-400" />
+        <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center gap-2 text-xs shrink-0 animate-in slide-in-from-top duration-150">
+          <Search className="w-4 h-4 text-emerald-400 shrink-0" />
           <input
             type="text"
-            placeholder="Search messages by text or sender..."
+            placeholder="Search messages in this chat..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none"
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchIndex(0);
+            }}
+            className="flex-1 bg-transparent border-none text-white placeholder:text-slate-500 text-xs focus:outline-none"
+            autoFocus
           />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="p-1 text-slate-400 hover:text-white">
-              <X className="w-3.5 h-3.5" />
-            </button>
+          {searchResults.length > 0 && (
+            <span className="text-[10px] font-mono text-slate-400 shrink-0">
+              {searchIndex + 1} of {searchResults.length}
+            </span>
           )}
-          <button onClick={() => { setSearchOpen(false); setSearchQuery(''); }} className="text-xs text-emerald-400 font-bold px-1">
-            Done
+          {searchQuery && searchResults.length === 0 && (
+            <span className="text-[10px] font-mono text-red-400 shrink-0">
+              No matches
+            </span>
+          )}
+          <button
+            onClick={handlePrevSearch}
+            disabled={searchResults.length === 0}
+            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30"
+            title="Previous match"
+          >
+            ▲
+          </button>
+          <button
+            onClick={handleNextSearch}
+            disabled={searchResults.length === 0}
+            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30"
+            title="Next match"
+          >
+            ▼
+          </button>
+          <button
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery('');
+            }}
+            className="p-1 text-slate-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
@@ -664,14 +806,11 @@ export function ChatView({ onOpenInvite, onBack }) {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 2. CHAT STREAM OR INVITE & PAIR DASHBOARD                                  */}
-      {/* ========================================================================= */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
-        {/* 🌟 1-CLICK DUO INVITATION & PAIRING CARD */}
+      {/* 2. CHAT STREAM (Natural top-down growth, sender right, receiver left) */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 flex flex-col justify-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
         {hasPartner ? (
-          /* 🟢 PAIRED ACTIVE BANNER */
-          <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2 max-w-lg mx-auto mb-2 animate-in fade-in">
+          /* PAIRED ACTIVE BANNER */
+          <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2 max-w-lg w-full mx-auto mb-2 animate-in fade-in shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold shrink-0">
                 🔒
@@ -691,13 +830,12 @@ export function ChatView({ onOpenInvite, onBack }) {
               className="px-2.5 py-1.5 rounded-xl bg-red-950/60 border border-red-500/30 text-red-300 hover:bg-red-900/60 text-[10px] font-bold shrink-0 transition-all active:scale-95"
               title="Disconnect / Split Room"
             >
-              Unpair / Reset
+              Unpair
             </button>
           </div>
         ) : (
-          /* 🎮 2-PLAYER GAME-STYLE ROOM LOBBY (SELECT, CREATE, OR JOIN) */
-          <div className="p-4 sm:p-6 rounded-3xl bg-slate-900/95 border-2 border-emerald-500/40 shadow-2xl space-y-5 max-w-lg mx-auto mb-2 animate-in fade-in">
-            {/* Header */}
+          /* 2-PLAYER ROOM LOBBY (CREATE OR JOIN) */
+          <div className="p-4 sm:p-6 rounded-3xl bg-slate-900/95 border-2 border-emerald-500/40 shadow-2xl space-y-5 max-w-lg w-full mx-auto mb-2 animate-in fade-in shrink-0">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-emerald-400 font-black text-xs sm:text-sm tracking-wider uppercase">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -708,7 +846,6 @@ export function ChatView({ onOpenInvite, onBack }) {
               </span>
             </div>
 
-            {/* MODE 1: SELECT (CREATE OR JOIN) */}
             {lobbyMode === 'select' && (
               <div className="space-y-4 py-2">
                 <p className="text-xs text-slate-300 text-center font-medium">
@@ -716,7 +853,6 @@ export function ChatView({ onOpenInvite, onBack }) {
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  {/* CREATE ROOM CARD */}
                   <button
                     onClick={handleCreateRoom}
                     disabled={createLoading}
@@ -734,7 +870,6 @@ export function ChatView({ onOpenInvite, onBack }) {
                     </span>
                   </button>
 
-                  {/* JOIN ROOM CARD */}
                   <button
                     onClick={() => setLobbyMode('join')}
                     className="p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border-2 border-cyan-500/50 hover:border-cyan-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-3"
@@ -754,50 +889,47 @@ export function ChatView({ onOpenInvite, onBack }) {
               </div>
             )}
 
-            {/* MODE 2: CREATE ROOM (SHOWS CODE TO SHARE) */}
             {lobbyMode === 'create' && (
               <div className="space-y-4 animate-in fade-in">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                    Share this code with your friend
+                    Share your Room Code
                   </span>
                   <button
                     onClick={() => setLobbyMode('select')}
                     className="text-[10px] font-mono text-slate-400 hover:text-white underline"
                   >
-                    ↩ Back
+                    ↩ Change Mode
                   </button>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-black/60 border border-emerald-500/50 flex items-center justify-between gap-3 shadow-inner">
-                  <div>
-                    <span className="text-[9px] font-mono text-slate-400 uppercase font-bold block">YOUR ROOM CODE</span>
-                    <span className="text-2xl sm:text-3xl font-black text-emerald-300 font-mono tracking-widest">
-                      {roomData?.code || 'DUO-ROOM'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={handleCopyCode}
-                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
-                    >
-                      {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedCode ? 'Copied!' : 'Copy Code'}</span>
-                    </button>
-
-                    <button
-                      onClick={handleCopyLinkOnly}
-                      className="px-3 py-2.5 rounded-xl bg-cyan-950/80 border border-cyan-500/40 hover:bg-cyan-900/80 text-xs font-bold text-cyan-300 flex items-center gap-1.5 transition-all shadow-md active:scale-95"
-                      title="Copy Direct Invite Link"
-                    >
-                      {copiedLink ? <Check className="w-3.5 h-3.5 text-cyan-400" /> : <LinkIcon className="w-3.5 h-3.5" />}
-                      <span>{copiedLink ? 'Copied!' : 'Link'}</span>
-                    </button>
+                <div className="p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/40 text-center space-y-2">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
+                    YOUR UNIQUE DUO ROOM CODE
+                  </span>
+                  <div className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-emerald-400 py-1">
+                    {roomData?.code || '---'}
                   </div>
                 </div>
 
-                {/* WhatsApp 1-Click Invite Button */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleCopyCode}
+                    className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedCode ? 'Copied! ✅' : 'Copy Code'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleCopyLinkOnly}
+                    className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <LinkIcon className="w-3.5 h-3.5" />
+                    <span>{copiedLink ? 'Copied! ✅' : 'Copy Link'}</span>
+                  </button>
+                </div>
+
                 <button
                   onClick={handleCopyWhatsApp}
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 active:scale-95 transition-transform"
@@ -812,7 +944,6 @@ export function ChatView({ onOpenInvite, onBack }) {
               </div>
             )}
 
-            {/* MODE 3: JOIN ROOM (INPUT FRIEND'S CODE) */}
             {lobbyMode === 'join' && (
               <form onSubmit={handleJoinByCode} className="space-y-4 animate-in fade-in">
                 <div className="flex items-center justify-between">
@@ -845,9 +976,6 @@ export function ChatView({ onOpenInvite, onBack }) {
                     {joinLoading ? 'Connecting...' : 'CONNECT 🚀'}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  💡 <span className="text-slate-300 font-bold">Fast Connect:</span> Both of you can type the exact same word (e.g. <span className="text-emerald-400 font-mono font-bold">sasi</span> or <span className="text-cyan-400 font-mono font-bold">duo123</span>) and tap Connect!
-                </p>
                 {joinError && <p className="text-xs text-red-400 font-bold px-1">{joinError}</p>}
               </form>
             )}
@@ -855,14 +983,13 @@ export function ChatView({ onOpenInvite, onBack }) {
         )}
 
         {/* Message Stream */}
-        {displayedMessages.map((msg, idx) => {
-          const isMe = msg.sender_id === user?.id;
+        {normalMessages.map((msg, idx) => {
+          const isMe = String(msg.sender_id) === String(user?.id);
 
           let meta = {};
           if (msg.metadata) {
-            if (typeof msg.metadata === 'object') {
-              meta = msg.metadata;
-            } else if (typeof msg.metadata === 'string') {
+            if (typeof msg.metadata === 'object') meta = msg.metadata;
+            else if (typeof msg.metadata === 'string') {
               try { meta = JSON.parse(msg.metadata); } catch (e) { meta = {}; }
             }
           }
@@ -870,32 +997,50 @@ export function ChatView({ onOpenInvite, onBack }) {
           return (
             <div
               key={msg.id || idx}
-              className={`flex items-end gap-2 group ${isMe ? 'justify-end' : 'justify-start'}`}
+              id={`msg-${msg.id}`}
+              className={`flex items-end gap-2 group transition-all ${isMe ? 'justify-end' : 'justify-start'}`}
             >
               {!isMe && (
                 <img
                   src={partnerAvatar}
                   alt={msg.username}
-                  className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1"
+                  className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1 ring-1 ring-slate-700"
                 />
               )}
 
               <div
                 className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
                   isMe
-                    ? `${currentThemeObj.bubbleMe} text-white rounded-br-none`
-                    : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none`
+                    ? `${currentThemeObj.bubbleMe} text-white rounded-br-none ml-auto`
+                    : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none mr-auto`
                 }`}
               >
                 {/* Reply Quote Preview */}
-                {msg.replyTo && (
-                  <div className="p-2 rounded-xl bg-black/20 border-l-2 border-emerald-300 text-xs text-slate-200 mb-1">
-                    <span className="font-bold text-[10px] block opacity-80">{msg.replyTo.username}</span>
-                    <p className="truncate text-[11px]">{msg.replyTo.text}</p>
+                {(msg.reply_to_text || msg.replyTo?.text) && (
+                  <div
+                    onClick={() => {
+                      const targetId = msg.reply_to_id || msg.replyTo?.id;
+                      if (targetId) {
+                        const el = document.getElementById(`msg-${targetId}`);
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          el.classList.add('ring-2', 'ring-emerald-400', 'scale-[1.02]');
+                          setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'scale-[1.02]'), 1500);
+                        }
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1.5 cursor-pointer hover:bg-black/40 transition-colors"
+                  >
+                    <span className="font-bold text-[10px] text-emerald-300 block">
+                      {msg.reply_to_username || msg.replyTo?.username || 'Partner'}
+                    </span>
+                    <p className="truncate text-[11px] text-slate-300">
+                      {msg.reply_to_text || msg.replyTo?.text}
+                    </p>
                   </div>
                 )}
 
-                {/* 🎵 SHARED MUSIC CARD */}
+                {/* Shared Music Card */}
                 {meta?.song && (
                   <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
                     <div className="flex items-center gap-3">
@@ -906,7 +1051,7 @@ export function ChatView({ onOpenInvite, onBack }) {
                       />
                       <div className="min-w-0">
                         <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
-                          SOUNDWAVE TRACK
+                          DUOCORE MUSIC TRACK
                         </span>
                         <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
                         <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
@@ -921,19 +1066,20 @@ export function ChatView({ onOpenInvite, onBack }) {
                       className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
                     >
                       <Play className="w-4 h-4 fill-current" />
-                      <span>Play on SoundWave</span>
+                      <span>Play on DuoCore</span>
                     </button>
                   </div>
                 )}
 
                 {/* Photo / Image */}
                 {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
-                  <div className="rounded-xl overflow-hidden max-h-72">
+                  <div className="rounded-2xl overflow-hidden max-h-80 border border-white/10 relative group/img mt-1">
                     <img
                       src={meta.fileUrl}
                       alt="Photo"
-                      className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
-                      onClick={() => window.open(meta.fileUrl, '_blank')}
+                      loading="lazy"
+                      className="w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                      onClick={() => setPreviewImageModal(meta.fileUrl)}
                     />
                   </div>
                 )}
@@ -941,6 +1087,19 @@ export function ChatView({ onOpenInvite, onBack }) {
                 {/* Voice Note Player */}
                 {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
                   <AudioMemoPlayer fileUrl={meta.fileUrl} />
+                )}
+
+                {/* Generic File Download */}
+                {meta?.fileUrl && !meta?.fileType?.startsWith('image/') && !meta?.fileType?.startsWith('audio/') && (
+                  <a
+                    href={meta.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2.5 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-1"
+                  >
+                    <span className="truncate font-bold">{meta.fileName || '📎 Download Attachment'}</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-2" />
+                  </a>
                 )}
 
                 {/* Message Text */}
@@ -962,8 +1121,8 @@ export function ChatView({ onOpenInvite, onBack }) {
                   </p>
                 )}
 
-                {/* Timestamp & Star */}
-                <div className="flex items-center justify-end gap-1 text-[10px] opacity-75 font-mono pt-0.5">
+                {/* Timestamp & Real Ticks */}
+                <div className="flex items-center justify-end gap-1.5 text-[10px] opacity-80 font-mono pt-0.5">
                   {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
                   <span>
                     {msg.created_at
@@ -971,19 +1130,21 @@ export function ChatView({ onOpenInvite, onBack }) {
                       : ''}
                   </span>
                   {isMe && (
-                    <span title={msg.status === 'read' ? 'Read' : 'Delivered'}>
-                      {msg.status === 'read' ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-cyan-200 stroke-[2.5]" />
+                    <span className="flex items-center" title={msg.is_read ? 'Read (Blue Double Tick)' : otherPartner?.is_online ? 'Delivered' : 'Sent'}>
+                      {msg.is_read ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-cyan-300 stroke-[2.5]" />
+                      ) : otherPartner?.is_online ? (
+                        <CheckCheck className="w-3.5 h-3.5 text-slate-300 stroke-[2]" />
                       ) : (
-                        <CheckCheck className="w-3.5 h-3.5 text-white/80" />
+                        <Check className="w-3.5 h-3.5 text-slate-400 stroke-[2]" />
                       )}
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* Context Hover Actions (Reply, Star, Pin, Delete) */}
-              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
+              {/* Context Actions (Reply, Star, Pin, Delete) */}
+              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
                 <button
                   onClick={() => setReplyTo(msg)}
                   className="p-1 text-slate-400 hover:text-white"
@@ -1024,13 +1185,21 @@ export function ChatView({ onOpenInvite, onBack }) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Uploading Progress Toast */}
+      {uploadingMedia && (
+        <div className="px-4 py-2 bg-slate-900 border-t border-emerald-500/30 flex items-center justify-center gap-2 text-xs font-bold text-emerald-400 animate-pulse shrink-0">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Uploading attachment securely...</span>
+        </div>
+      )}
+
       {/* Reply Preview Bar */}
       {replyTo && (
-        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs">
+        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <CornerDownRight className="w-4 h-4 text-emerald-400 shrink-0" />
             <div className="min-w-0">
-              <span className="font-bold text-emerald-400 text-[10px]">{replyTo.username}</span>
+              <span className="font-bold text-emerald-400 text-[10px]">{replyTo.username || 'Partner'}</span>
               <p className="text-slate-300 truncate text-[11px]">{replyTo.text}</p>
             </div>
           </div>
@@ -1040,9 +1209,7 @@ export function ChatView({ onOpenInvite, onBack }) {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 3. WHATSAPP BOTTOM COMPOSER (Active only when paired)                     */}
-      {/* ========================================================================= */}
+      {/* 3. WHATSAPP BOTTOM COMPOSER */}
       {hasPartner && (
         <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <input
@@ -1099,53 +1266,76 @@ export function ChatView({ onOpenInvite, onBack }) {
               </div>
             </div>
           ) : (
-            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
+            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Type a message or paste a link..."
+                placeholder="Type a secret message..."
                 value={messageText}
-                onChange={handleTextChange}
-                className="flex-1 glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-emerald-500"
+                onChange={(e) => {
+                  setMessageText(e.target.value);
+                  sendTyping(e.target.value.length > 0, 'normal');
+                }}
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 shadow-inner"
               />
 
-              <button
-                type="button"
-                onClick={startRecording}
-                className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-                title="Hold to Record Voice Note"
-              >
-                <Mic className="w-4 h-4" />
-              </button>
-
-              <button
-                type="submit"
-                disabled={!messageText.trim()}
-                className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:bg-emerald-500 text-slate-950 font-black transition-all shadow-md shadow-emerald-500/30 active:scale-95 shrink-0"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+              {messageText.trim() ? (
+                <button
+                  type="submit"
+                  className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-black transition-transform active:scale-95 shrink-0 shadow-lg shadow-emerald-500/30"
+                  title="Send Message"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="p-2.5 rounded-2xl bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-all active:scale-95 shrink-0"
+                  title="Hold to record voice note"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              )}
             </form>
           )}
         </div>
       )}
 
-      {/* Location Sharing Confirmation Modal */}
+      {/* Image Fullscreen Preview Modal */}
+      {previewImageModal && (
+        <div
+          onClick={() => setPreviewImageModal(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 animate-in fade-in cursor-pointer"
+        >
+          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl border border-slate-800">
+            <img src={previewImageModal} alt="Enlarged view" className="w-full h-full object-contain" />
+            <button
+              onClick={() => setPreviewImageModal(null)}
+              className="absolute top-3 right-3 p-2 rounded-full bg-slate-950/80 text-white hover:bg-slate-900"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GPS Location Confirmation Modal */}
       {locationConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-xs glass-panel p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-center">
-            <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto text-xl">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-2xl mx-auto">
               📍
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white">Share Live Location?</h4>
+              <h4 className="text-sm font-bold text-white">Share GPS Location?</h4>
               <p className="text-xs text-slate-400 mt-1">
-                Your current GPS coordinates will be sent as a secure Google Maps link to your partner.
+                Your exact Google Maps location pin will be shared with your duo partner.
               </p>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setLocationConfirmOpen(false)}
-                className="flex-1 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400"
+                className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
               >
                 Cancel
               </button>
@@ -1294,8 +1484,6 @@ export function ChatView({ onOpenInvite, onBack }) {
         <VideoCallModal
           isOpen={videoCallOpen}
           onClose={() => setVideoCallOpen(false)}
-          partnerId={otherPartner?.id || 'partner-1'}
-          partnerName={otherPartner?.username || 'Duo Partner'}
         />
       )}
 
@@ -1303,20 +1491,27 @@ export function ChatView({ onOpenInvite, onBack }) {
         <AudioCallModal
           isOpen={audioCallOpen}
           onClose={() => setAudioCallOpen(false)}
-          partnerId={otherPartner?.id || 'partner-1'}
-          partnerName={otherPartner?.username || 'Duo Partner'}
         />
       )}
 
       {incomingCall && (
         <IncomingCallModal
-          callData={incomingCall}
+          incomingCall={incomingCall}
           onAccept={() => {
-            if (incomingCall.type === 'video') setVideoCallOpen(true);
+            if (incomingCall.callType === 'video') setVideoCallOpen(true);
             else setAudioCallOpen(true);
             setIncomingCall(null);
           }}
-          onReject={() => setIncomingCall(null)}
+          onDecline={() => {
+            const s = getSocket();
+            if (s) {
+              s.emit('call:decline_call', {
+                callerSocketId: incomingCall.caller?.socketId,
+                roomId: roomData?.id
+              });
+            }
+            setIncomingCall(null);
+          }}
         />
       )}
 
@@ -1329,7 +1524,7 @@ export function ChatView({ onOpenInvite, onBack }) {
             formData.append('file', blob, 'camera_capture.jpg');
             try {
               const res = await api.uploadFile(roomData?.id, formData);
-              sendMessage({
+              await sendMessage({
                 text: '📷 Live Camera Photo',
                 channel: 'normal',
                 metadata: { fileUrl: res.fileUrl, fileType: 'image/jpeg' }

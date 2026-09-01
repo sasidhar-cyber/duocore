@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useMusic } from '../context/MusicContext';
 import api from '../services/api';
@@ -20,7 +20,8 @@ import {
   Radio,
   Eye,
   VolumeX,
-  Volume2
+  Volume2,
+  AlertCircle
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { requestNotificationPermission } from '../utils/notificationService';
@@ -46,7 +47,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
   const { user, updateUser } = useAuth();
   const { appTitle, changeAppTitle, activeTheme, changeTheme, openSecretChat } = useMusic();
 
-  const [activeTab, setActiveTab] = useState('app'); // 'app', 'account', 'security', 'vault'
+  const [activeTab, setActiveTab] = useState('app'); // 'app', 'notifications', 'account', 'security', 'vault'
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -68,28 +69,46 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
   // Vault PIN state
   const [vaultPin, setVaultPin] = useState(localStorage.getItem('duocore_vault_pin') || '1234');
   const [newVaultPin, setNewVaultPin] = useState('');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('duocore_notifications_enabled') !== 'false');
+  
+  // Notification States
+  const [notifMessages, setNotifMessages] = useState(() => localStorage.getItem('duocore_notif_messages') !== 'false');
+  const [notifCalls, setNotifCalls] = useState(() => localStorage.getItem('duocore_notif_calls') !== 'false');
+  const [notifInvites, setNotifInvites] = useState(() => localStorage.getItem('duocore_notif_invites') !== 'false');
+  const [notifMusic, setNotifMusic] = useState(() => localStorage.getItem('duocore_notif_music') !== 'false');
+  const [browserPermission, setBrowserPermission] = useState('default');
+
   const [panicClearEnabled, setPanicClearEnabled] = useState(() => localStorage.getItem('duocore_panic_clear_enabled') === 'true');
   const [pinFailureLimit, setPinFailureLimit] = useState(() => localStorage.getItem('duocore_pin_failure_limit') || '3');
 
-  const handleNotificationToggle = async () => {
-    const next = !notificationsEnabled;
-    if (next) {
-      const permission = await requestNotificationPermission();
-      if (permission !== 'granted') {
-        setError('Allow notifications in your browser settings to turn them on.');
-        return;
-      }
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setBrowserPermission(Notification.permission);
     }
+  }, [isOpen]);
+
+  const handleRequestPermission = async () => {
+    const perm = await requestNotificationPermission();
+    setBrowserPermission(perm);
+    if (perm === 'granted') {
+      setMessage('Browser notification permission granted! ✅');
+      try { playSound('quiz_correct'); } catch {}
+    } else {
+      setError('Notification permission was denied. Please enable in browser settings.');
+      try { playSound('quiz_wrong'); } catch {}
+    }
+  };
+
+  const handleToggleNotif = (key, currentVal, setter) => {
+    const next = !currentVal;
+    setter(next);
+    localStorage.setItem(key, String(next));
     localStorage.setItem('duocore_notifications_enabled', String(next));
-    setNotificationsEnabled(next);
-    setMessage(next ? 'Message notifications are on.' : 'Message notifications are off.');
   };
 
   const savePanicSettings = () => {
     localStorage.setItem('duocore_panic_clear_enabled', String(panicClearEnabled));
     localStorage.setItem('duocore_pin_failure_limit', pinFailureLimit);
-    setMessage(panicClearEnabled ? `Chat will clear after ${pinFailureLimit} incorrect PIN attempts.` : 'Failed-PIN chat clearing is off.');
+    setMessage(panicClearEnabled ? `Chat will auto-clear after ${pinFailureLimit} incorrect PIN attempts.` : 'Failed-PIN chat clearing is off.');
   };
 
   if (!isOpen) return null;
@@ -98,8 +117,8 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
     e.preventDefault();
     if (!customTitle.trim()) return;
     changeAppTitle(customTitle.trim());
-    setMessage(`App name updated to "${customTitle.trim()}"!`);
-    playSound('quiz_correct');
+    setMessage('App Title updated successfully! 🎵');
+    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleUpdateProfile = async (e) => {
@@ -109,18 +128,25 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
     setMessage('');
 
     try {
-      const res = await api.updateProfile({
-        username,
-        bio,
-        avatar_url: avatarUrl,
-        phone_number: phoneNumber
+      await api.updateProfile({
+        username: username.trim(),
+        bio: bio.trim(),
+        phone_number: phoneNumber.trim(),
+        avatar_url: avatarUrl.trim()
       });
 
-      if (res.user) {
-        updateUser(res.user);
+      if (updateUser) {
+        updateUser({
+          username: username.trim(),
+          bio: bio.trim(),
+          phone_number: phoneNumber.trim(),
+          avatar_url: avatarUrl.trim()
+        });
       }
-      setMessage('Profile updated successfully!');
+
+      setMessage('Profile updated successfully! ✅');
       playSound('quiz_correct');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to update profile.');
       playSound('quiz_wrong');
@@ -131,106 +157,127 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
+    setError('');
+    setMessage('');
+
     if (newPassword !== confirmPassword) {
-      setError('New password and confirm password do not match.');
+      setError('New passwords do not match.');
+      playSound('quiz_wrong');
       return;
     }
+
     if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters.');
+      setError('Password must be at least 6 characters.');
+      playSound('quiz_wrong');
       return;
     }
 
     setLoading(true);
-    setError('');
-    setMessage('');
-
     try {
-      const res = await api.changePassword({ currentPassword, newPassword });
-      setMessage(res.message || 'Password changed successfully!');
+      await api.changePassword({
+        currentPassword,
+        newPassword
+      });
+
+      setMessage('Password updated successfully! 🔒');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       playSound('quiz_correct');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to change password.');
+      setError(err.message || 'Failed to update password.');
       playSound('quiz_wrong');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveVaultPin = (e) => {
+  const handleUpdateVaultPin = (e) => {
     e.preventDefault();
-    if (newVaultPin.length < 4) {
-      setError('Vault Passkey PIN must be at least 4 digits.');
+    if (!newVaultPin || newVaultPin.length !== 4) {
+      setError('PIN must be exactly 4 digits.');
       return;
     }
     localStorage.setItem('duocore_vault_pin', newVaultPin);
     localStorage.setItem('soundwave_vault_pin', newVaultPin);
     setVaultPin(newVaultPin);
     setNewVaultPin('');
-    setMessage('Stealth Vault Passkey PIN updated successfully!');
+    setMessage('Stealth PIN changed successfully! 🔑');
     playSound('quiz_correct');
-  };
-
-  const handleInstallPWA = () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-    } else {
-      alert('To install as an App on Phone/PC:\n• Chrome: Tap 3 dots -> "Install App" / "Add to Home Screen".\n• Safari: Tap Share -> "Add to Home Screen".');
-    }
+    setTimeout(() => setMessage(''), 3000);
   };
 
   const randomizeAvatar = () => {
-    const seed = 'user_' + Math.random().toString(36).substring(2, 8);
-    setAvatarUrl(`https://api.dicebear.com/7.x/bottts/svg?seed=${seed}`);
+    const seed = 'avatar_' + Math.random().toString(36).substring(7);
+    const newAv = `https://api.dicebear.com/7.x/bottts/svg?seed=${seed}`;
+    setAvatarUrl(newAv);
+  };
+
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setMessage('App install initiated! 🚀');
+      }
+    } else {
+      alert('To install on iOS / Android: Open browser menu (⋮ or Share) and tap "Add to Home Screen"!');
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in select-none">
-      <div className="w-full max-w-xl glass-panel p-5 sm:p-7 rounded-3xl border border-emerald-500/40 shadow-2xl space-y-5 bg-slate-950/95 max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="w-full max-w-lg glass-panel p-5 sm:p-6 rounded-3xl border border-emerald-500/40 shadow-2xl space-y-4 max-h-[92vh] flex flex-col bg-slate-950/95">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 p-[1.5px]">
-              <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-emerald-400">
-                ⚙️
-              </div>
+        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold">
+              ⚙️
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-black text-white">{appTitle} Settings & Privacy</h3>
-              <p className="text-[11px] text-slate-400">Customize theme, disguise name, passwords & stealth vault</p>
+              <h3 className="text-sm sm:text-base font-black text-white">DuoCore Settings</h3>
+              <p className="text-[10px] text-emerald-400 font-mono">Preferences, Notifications & Privacy</p>
             </div>
           </div>
+
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Feedback Messages */}
+        {/* Message / Error banners */}
         {message && (
-          <div className="p-3 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs shrink-0">
+          <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center animate-in fade-in">
             {message}
           </div>
         )}
         {error && (
-          <div className="p-3 rounded-2xl bg-red-950/60 border border-red-500/40 text-red-300 text-xs shrink-0">
+          <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-500/40 text-red-300 text-xs font-bold text-center animate-in fade-in">
             {error}
           </div>
         )}
 
-        {/* Tabs Header */}
-        <div className="grid grid-cols-4 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[10px] sm:text-[11px] font-bold shrink-0">
+        {/* Tabs Bar */}
+        <div className="grid grid-cols-4 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold">
           <button
             onClick={() => { setActiveTab('app'); setError(''); setMessage(''); }}
             className={`py-2 rounded-xl transition-all ${
               activeTab === 'app' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
             }`}
           >
-            🎨 Theme
+            🎨 App
+          </button>
+          <button
+            onClick={() => { setActiveTab('notifications'); setError(''); setMessage(''); }}
+            className={`py-2 rounded-xl transition-all ${
+              activeTab === 'notifications' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            🔔 Notifs
           </button>
           <button
             onClick={() => { setActiveTab('account'); setError(''); setMessage(''); }}
@@ -239,14 +286,6 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             }`}
           >
             👤 Profile
-          </button>
-          <button
-            onClick={() => { setActiveTab('security'); setError(''); setMessage(''); }}
-            className={`py-2 rounded-xl transition-all ${
-              activeTab === 'security' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            🔑 Pass
           </button>
           <button
             onClick={() => { setActiveTab('vault'); setError(''); setMessage(''); }}
@@ -263,10 +302,9 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
           {/* TAB 1: APP DISGUISE & THEMES */}
           {activeTab === 'app' && (
             <div className="space-y-4 animate-in fade-in">
-              {/* App Disguise Name Customization */}
               <form onSubmit={handleSaveAppDisguise} className="space-y-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
                 <label className="text-xs font-bold text-slate-300 block">
-                  Disguise App Title (Choose Name or Type Custom)
+                  Disguise App Title (Stealth Overlay Name)
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {DISGUISE_NAMES.map((name) => (
@@ -302,9 +340,8 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                 </div>
               </form>
 
-              {/* Music Player Theme */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-2">Music Player Color Theme</label>
+                <label className="text-xs font-bold text-slate-300 block mb-2">Color Theme</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {MUSIC_THEMES.map((th) => (
                     <button
@@ -327,34 +364,129 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                 </div>
               </div>
 
-              {/* PWA Install Button */}
               <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-white">Install Music App on Mobile / PC</h4>
-                  <p className="text-[10px] text-slate-400">Add to Phone Home Screen for standalone offline player</p>
+                  <h4 className="text-xs font-bold text-white">Install App on Mobile / Desktop</h4>
+                  <p className="text-[10px] text-slate-400">Add to Home Screen for fast standalone access</p>
                 </div>
                 <button
                   type="button"
                   onClick={handleInstallPWA}
                   className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shrink-0"
                 >
-                  📱 Install App
-                </button>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
-                <div>
-                  <h4 className="text-xs font-bold text-white">Message notifications</h4>
-                  <p className="text-[10px] text-slate-400">Show a notification for new chat messages while this app is in the background.</p>
-                </div>
-                <button type="button" onClick={handleNotificationToggle} className={`shrink-0 px-3 py-2 rounded-xl text-xs font-black ${notificationsEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>
-                  {notificationsEnabled ? 'On' : 'Off'}
+                  📱 Install
                 </button>
               </div>
             </div>
           )}
 
-          {/* TAB 2: PROFILE & PHONE NUMBER */}
+          {/* TAB 2: NOTIFICATIONS CONTROLS */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-3.5 animate-in fade-in">
+              {/* Permission Banner */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Browser Permission:</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
+                      browserPermission === 'granted'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : browserPermission === 'denied'
+                        ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                        : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+                    }`}>
+                      {browserPermission}
+                    </span>
+                  </h4>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {browserPermission === 'granted'
+                      ? 'Push notifications are active and ready.'
+                      : 'Browser requires permission to display toasts when in background.'}
+                  </p>
+                </div>
+                {browserPermission !== 'granted' && (
+                  <button
+                    type="button"
+                    onClick={handleRequestPermission}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shrink-0"
+                  >
+                    Allow 🔔
+                  </button>
+                )}
+              </div>
+
+              {/* Message notifications */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Private Chat Messages</h4>
+                  <p className="text-[10px] text-slate-400">Show alerts when partner sends a secret message</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotif('duocore_notif_messages', notifMessages, setNotifMessages)}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                    notifMessages ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {notifMessages ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              {/* Incoming Call notifications */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Incoming HD Calls</h4>
+                  <p className="text-[10px] text-slate-400">Ring and notify when partner calls you</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotif('duocore_notif_calls', notifCalls, setNotifCalls)}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                    notifCalls ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {notifCalls ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              {/* Invite notifications */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Invites & Pairing Alerts</h4>
+                  <p className="text-[10px] text-slate-400">Notify when a friend enters your room code</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotif('duocore_notif_invites', notifInvites, setNotifInvites)}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                    notifInvites ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {notifInvites ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              {/* Music notifications */}
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Shared Music Stream</h4>
+                  <p className="text-[10px] text-slate-400">Show track info when partner shares a song</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotif('duocore_notif_music', notifMusic, setNotifMusic)}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                    notifMusic ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {notifMusic ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: PROFILE & PHONE NUMBER */}
           {activeTab === 'account' && (
             <form onSubmit={handleUpdateProfile} className="space-y-3.5 animate-in fade-in">
               <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-900/60 border border-slate-800">
@@ -403,7 +535,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                   type="text"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  placeholder="Vibing to good music"
+                  placeholder="Listening to good music on DuoCore"
                   className="w-full glass-input rounded-xl px-3.5 py-2.5 text-xs text-white"
                 />
               </div>
@@ -418,97 +550,26 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             </form>
           )}
 
-          {/* TAB 3: CHANGE PASSWORD */}
-          {activeTab === 'security' && (
-            <form onSubmit={handleChangePassword} className="space-y-3.5 animate-in fade-in">
-              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
-                🔒 Update your account password anytime.
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">Current Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Enter current password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">New Password (Min 6 chars)</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Enter new password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">Confirm New Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Confirm new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !currentPassword || !newPassword}
-                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 transition-transform active:scale-95 disabled:opacity-50"
-              >
-                {loading ? 'Changing Password...' : 'Update Password 🔑'}
-              </button>
-            </form>
-          )}
-
-          {/* TAB 4: STEALTH VAULT PIN */}
+          {/* TAB 4: STEALTH PIN & PANIC SECURITY */}
           {activeTab === 'vault' && (
             <div className="space-y-4 animate-in fade-in">
-              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-2">
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-1.5">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
-                  <Shield className="w-4 h-4" />
-                  <span>How to open Stealth 1v1 Duo Chat:</span>
+                  <Key className="w-4 h-4" />
+                  <span>Stealth 4-Digit Vault PIN</span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  1. <strong>Triple-tap (3 clicks)</strong> on the <strong>🎵 SoundWave Logo</strong> in the top-left.<br />
-                  2. Or type <strong>//chat</strong> in the song search bar.<br />
-                  3. Enter your 4-digit PIN.<br />
-                  4. Press <strong>Esc</strong> anytime for instant panic hide!
+                <p className="text-[11px] text-slate-400">
+                  Triple-tap the top logo anytime or type <span className="text-emerald-400 font-mono">//chat</span> to open the secret private room.
                 </p>
+                <div className="text-xs text-slate-300 font-mono pt-1">
+                  Current PIN: <span className="font-bold text-emerald-400">{vaultPin}</span>
+                </div>
               </div>
 
-              {/* Change Vault PIN */}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!/^\d{4}$/.test(newVaultPin.trim())) {
-                    setError('PIN must be exactly 4 digits (e.g. 1234)');
-                    return;
-                  }
-                  localStorage.setItem('soundwave_vault_pin', newVaultPin.trim());
-                  localStorage.setItem('duocore_vault_pin', newVaultPin.trim());
-                  setVaultPin(newVaultPin.trim());
-                  setNewVaultPin('');
-                  setMessage(`Stealth PIN updated to "${newVaultPin.trim()}"!`);
-                  setError('');
-                  try { playSound('quiz_correct'); } catch {}
-                }}
-                className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3"
-              >
-                <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
-                  <Lock className="w-4 h-4 text-emerald-400" />
-                  <span>Stealth Vault PIN (Current: {vaultPin})</span>
-                </div>
+              <form onSubmit={handleUpdateVaultPin} className="space-y-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+                <label className="text-xs font-bold text-slate-300 block">
+                  Change 4-Digit Stealth PIN
+                </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="password"
@@ -516,38 +577,68 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                     placeholder="Enter new 4-digit PIN"
                     value={newVaultPin}
                     onChange={(e) => setNewVaultPin(e.target.value.replace(/\D/g, ''))}
-                    className="flex-1 glass-input rounded-xl px-3 py-2 text-center text-xs font-mono text-emerald-400"
+                    className="flex-1 glass-input rounded-xl px-3.5 py-2 text-xs font-mono tracking-widest text-emerald-400 text-center"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shrink-0"
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shrink-0"
                   >
-                    Update PIN
+                    Update PIN 🔑
                   </button>
                 </div>
               </form>
 
-              <div className="p-4 rounded-2xl bg-red-950/20 border border-red-500/30 space-y-3">
-                <div className="flex items-start justify-between gap-3">
+              <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-xs font-black text-white">Clear chat after wrong PIN attempts</h4>
-                    <p className="text-[10px] text-slate-400 mt-1">Deletes messages in the current Duo Chat after repeated wrong PINs. Use only if you accept this cannot be undone.</p>
+                    <h4 className="text-xs font-bold text-white">Emergency Panic Clear</h4>
+                    <p className="text-[10px] text-slate-400">Auto-delete chat history on repeated wrong PIN</p>
                   </div>
-                  <button type="button" onClick={() => setPanicClearEnabled((value) => !value)} className={`shrink-0 px-3 py-2 rounded-xl text-xs font-black ${panicClearEnabled ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
-                    {panicClearEnabled ? 'On' : 'Off'}
+                  <button
+                    type="button"
+                    onClick={() => setPanicClearEnabled(!panicClearEnabled)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                      panicClearEnabled ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {panicClearEnabled ? 'ENABLED' : 'DISABLED'}
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <select value={pinFailureLimit} onChange={(e) => setPinFailureLimit(e.target.value)} className="glass-input rounded-xl px-3 py-2 text-xs text-white">
-                    <option value="2">After 2 attempts</option>
-                    <option value="3">After 3 attempts</option>
-                  </select>
-                  <button type="button" onClick={savePanicSettings} className="px-3 py-2 rounded-xl bg-red-500/90 text-white text-xs font-black">Save safety rule</button>
-                </div>
+
+                {panicClearEnabled && (
+                  <div className="space-y-2 pt-2 border-t border-slate-800">
+                    <label className="text-[11px] font-bold text-slate-300 block">
+                      Wipe chat after incorrect attempts:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {['2', '3'].map((limit) => (
+                        <button
+                          key={limit}
+                          type="button"
+                          onClick={() => setPinFailureLimit(limit)}
+                          className={`p-2 rounded-xl text-xs font-bold border transition-all ${
+                            pinFailureLimit === limit
+                              ? 'bg-red-500/20 border-red-500 text-red-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {limit} Wrong Attempts
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={savePanicSettings}
+                  className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-white text-xs font-bold"
+                >
+                  Save Stealth Settings
+                </button>
               </div>
             </div>
           )}
-
         </div>
       </div>
     </div>

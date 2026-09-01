@@ -7,13 +7,23 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Configure multer storage
+const fs = require('fs');
+
+// Configure multer storage with guaranteed directory existence
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../uploads'));
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname).toLowerCase();
     const uniqueName = 'file-' + Date.now() + '-' + Math.round(Math.random() * 1E6) + ext;
     cb(null, uniqueName);
   }
@@ -21,7 +31,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
 });
 
 // Helper: check if user is in active room
@@ -40,17 +50,17 @@ router.post('/:roomId/upload', requireAuth, upload.single('file'), (req, res) =>
   }
 
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded.' });
+    return res.status(400).json({ error: 'No file uploaded or file exceeds 25MB limit.' });
   }
 
   const fileUrl = `/uploads/${req.file.filename}`;
-  const mimeType = req.file.mimetype;
+  const mimeType = req.file.mimetype || 'application/octet-stream';
   let detectedType = 'file';
 
   if (mimeType.startsWith('image/')) detectedType = 'image';
   else if (mimeType.startsWith('video/')) detectedType = 'video';
   else if (mimeType.startsWith('audio/')) detectedType = 'audio';
-  else if (mimeType === 'application/pdf' || req.file.originalname.endsWith('.pdf')) detectedType = 'file';
+  else if (mimeType === 'application/pdf' || req.file.originalname.toLowerCase().endsWith('.pdf')) detectedType = 'file';
 
   res.json({
     fileUrl,
@@ -80,10 +90,13 @@ router.get('/:roomId/messages', requireAuth, (req, res) => {
 
   const messages = db.prepare(`
     SELECT m.*, u.username, u.avatar_url,
+           orig.text as reply_to_text, orig_u.username as reply_to_username,
            (SELECT COUNT(*) FROM starred_messages sm WHERE sm.message_id = m.id AND sm.user_id = ?) as is_starred,
            (SELECT COUNT(*) FROM pinned_messages pm WHERE pm.message_id = m.id AND pm.room_id = m.room_id) as is_pinned
     FROM messages m
     LEFT JOIN users u ON m.sender_id = u.id
+    LEFT JOIN messages orig ON m.reply_to_id = orig.id
+    LEFT JOIN users orig_u ON orig.sender_id = orig_u.id
     WHERE m.room_id = ? AND IFNULL(m.channel_type, 'normal') = ?
     ORDER BY m.created_at ASC
     LIMIT 400
@@ -95,7 +108,8 @@ router.get('/:roomId/messages', requireAuth, (req, res) => {
 // Post Message to 1v1 or Vault Channel (Supports Text, Media, Location, Music Cards)
 router.post('/:roomId/messages', requireAuth, (req, res) => {
   const { roomId } = req.params;
-  const { text, type = 'text', channel = 'normal', replyToId, metadata = {} } = req.body;
+  const { text, type = 'text', channel = 'normal', replyToId, reply_to_id, metadata = {} } = req.body;
+  const effectiveReplyId = reply_to_id || replyToId || null;
   const userId = req.user.id;
 
   if (!text && !metadata?.fileUrl && !metadata?.latitude && !metadata?.song) {
@@ -116,6 +130,18 @@ router.post('/:roomId/messages', requireAuth, (req, res) => {
   const msgId = 'msg-' + uuidv4().slice(0, 10);
   const now = new Date().toISOString();
 
+  let effectiveType = type || 'text';
+  if (metadata?.fileUrl) {
+    if (metadata.fileType?.startsWith('image/')) effectiveType = 'image';
+    else if (metadata.fileType?.startsWith('audio/')) effectiveType = 'audio';
+    else if (metadata.fileType?.startsWith('video/')) effectiveType = 'video';
+    else effectiveType = 'file';
+  } else if (metadata?.song) {
+    effectiveType = 'music';
+  } else if (metadata?.latitude) {
+    effectiveType = 'location';
+  }
+
   db.prepare(`
     INSERT INTO messages (id, room_id, sender_id, text, type, channel_type, metadata, reply_to_id, is_read, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
@@ -124,17 +150,20 @@ router.post('/:roomId/messages', requireAuth, (req, res) => {
     roomId,
     userId,
     (text || '').trim(),
-    type || 'text',
+    effectiveType,
     channel || 'normal',
     JSON.stringify(metadata || {}),
-    replyToId || null,
+    effectiveReplyId,
     now
   );
 
   const savedMsg = db.prepare(`
-    SELECT m.*, u.username, u.avatar_url
+    SELECT m.*, u.username, u.avatar_url,
+           orig.text as reply_to_text, orig_u.username as reply_to_username
     FROM messages m
     JOIN users u ON m.sender_id = u.id
+    LEFT JOIN messages orig ON m.reply_to_id = orig.id
+    LEFT JOIN users orig_u ON orig.sender_id = orig_u.id
     WHERE m.id = ?
   `).get(msgId);
 
@@ -143,6 +172,10 @@ router.post('/:roomId/messages', requireAuth, (req, res) => {
   if (io) {
     io.to(roomId).emit('chat:new_message', savedMsg);
   }
+
+  // Trigger async cloud sync for messages
+  const { syncTableToCloud } = require('../db/cloudSync');
+  syncTableToCloud(db, 'messages').catch(() => {});
 
   res.status(201).json({ message: 'Message sent', data: savedMsg });
 });

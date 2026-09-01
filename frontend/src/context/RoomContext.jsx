@@ -263,8 +263,20 @@ export function RoomProvider({ children }) {
       }
     };
 
+    const handleMessagesRead = ({ roomId, channel = 'normal', readBy }) => {
+      const markRead = (list) =>
+        list.map((m) => (m.sender_id !== readBy ? { ...m, is_read: 1 } : m));
+
+      if (channel.startsWith('dm:') || channel.startsWith('private:')) {
+        setPrivateMessages(markRead);
+      } else {
+        setNormalMessages(markRead);
+      }
+    };
+
     s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
+    s.on('chat:messages_read', handleMessagesRead);
     s.on('chat:partner_typing', handlePartnerTyping);
     s.on('presence:partner_status', handlePartnerStatus);
     s.on('presence:user_status_change', handleUserStatusChange);
@@ -281,6 +293,7 @@ export function RoomProvider({ children }) {
     return () => {
       s.off('connect', handleSocketConnect);
       s.off('chat:new_message', handleNewMessage);
+      s.off('chat:messages_read', handleMessagesRead);
       s.off('chat:partner_typing', handlePartnerTyping);
       s.off('presence:partner_status', handlePartnerStatus);
       s.off('presence:user_status_change', handleUserStatusChange);

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useMusic } from '../context/MusicContext';
-import { Music, Lock, Mail, User, Eye, EyeOff, ArrowRight, X, Sparkles, Headphones } from 'lucide-react';
+import { Lock, Mail, User, Eye, EyeOff, ArrowRight, X, Sparkles, Headphones, Zap } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
 export function AuthPage({ onAuthenticated }) {
-  const { login, register } = useAuth();
+  const { login, register, guestLogin } = useAuth();
   const { appTitle } = useMusic();
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
@@ -15,8 +15,9 @@ export function AuthPage({ onAuthenticated }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
 
-  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const EMAIL_REGEX = /^[^s@]+@[^s@]+.[^s@]+$/;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -74,44 +75,49 @@ export function AuthPage({ onAuthenticated }) {
       playSound('quiz_correct');
       if (onAuthenticated) onAuthenticated();
     } catch (err) {
-      setError(err.message || 'Authentication failed. Please try again.');
+      setError(err.message || 'Authentication failed. Please check credentials and try again.');
       playSound('quiz_wrong');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleGuestEntry = async () => {
+    setGuestLoading(true);
+    try {
+      if (guestLogin) {
+        await guestLogin();
+      }
+      playSound('quiz_correct');
+      if (onAuthenticated) onAuthenticated();
+    } catch (err) {
+      setError('Guest login failed. Please try signing up.');
+    } finally {
+      setGuestLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-3 sm:p-6 select-none relative overflow-hidden">
-      {/* Dynamic Ambient Background Glow */}
+      {/* Ambient Background Glow */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/15 rounded-full blur-3xl pointer-events-none" />
 
       {/* Auth Card */}
-      <div className="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl border border-emerald-500/40 shadow-2xl bg-slate-950/90 relative z-10 space-y-6">
-        {/* Top Header & Dismiss Button */}
+      <div className="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl border border-emerald-500/40 shadow-2xl bg-slate-950/90 relative z-10 space-y-6 animate-in zoom-in-95 duration-200">
+        {/* Top Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 p-[1.5px] shadow-lg shadow-emerald-500/20">
               <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-lg text-emerald-400">
-                🎵
+                ⚡
               </div>
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-white">{appTitle}</h2>
-              <p className="text-[10px] text-emerald-400 font-semibold font-mono">Premium Music & Audio Streaming</p>
+              <h2 className="text-base sm:text-lg font-black text-white">DuoCore</h2>
+              <p className="text-[10px] text-emerald-400 font-semibold font-mono">Music & 1v1 Stealth Duo Chat</p>
             </div>
           </div>
-
-          {onAuthenticated && (
-            <button
-              onClick={onAuthenticated}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-              title="Close and listen as guest"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
         </div>
 
         {/* Tab Switcher: Sign In vs Create Account */}
@@ -223,26 +229,26 @@ export function AuthPage({ onAuthenticated }) {
               <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                <span>{isRegister ? 'Create Free Account' : 'Sign In to SoundWave'}</span>
+                <span>{isRegister ? 'Create DuoCore Account' : 'Sign In to DuoCore'}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
 
-        {/* 1-Click Guest Listening Button */}
-        {onAuthenticated && (
-          <div className="pt-2 border-t border-slate-800/80 text-center">
-            <button
-              type="button"
-              onClick={onAuthenticated}
-              className="text-xs text-slate-400 hover:text-emerald-400 transition-colors flex items-center justify-center gap-1.5 mx-auto"
-            >
-              <Headphones className="w-3.5 h-3.5" />
-              <span>🎧 Skip login & stream music as Guest</span>
-            </button>
-          </div>
-        )}
+        {/* 1-Click Fast Guest Entry */}
+        <div className="pt-3 border-t border-slate-800/80 text-center space-y-2">
+          <button
+            type="button"
+            onClick={handleGuestEntry}
+            disabled={guestLoading}
+            className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700 text-xs font-bold text-slate-200 hover:text-emerald-400 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            <Zap className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+            <span>{guestLoading ? 'Starting Session...' : '⚡ Continue as Quick Guest (Fast Duo)'}</span>
+          </button>
+          <p className="text-[10px] text-slate-500">No registration required • Instant temporary session</p>
+        </div>
       </div>
     </div>
   );
