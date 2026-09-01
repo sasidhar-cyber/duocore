@@ -244,19 +244,33 @@ function cleanHtml(str) {
     .trim();
 }
 
+// Spotify-style search operators make one search box useful for power users
+// without making normal searches any harder. Example: artist:"Sid Sriram"
+// year:2024 or album:Animal Telugu.
+function parseSmartSearch(rawQuery) {
+  const filters = {};
+  const query = String(rawQuery || '').replace(/\b(artist|album|track|genre|language|year):(?:"([^"]+)"|'([^']+)'|([^\s]+))/gi, (_match, key, quoted, singleQuoted, plain) => {
+    filters[key.toLowerCase()] = (quoted || singleQuoted || plain || '').trim();
+    return ' ';
+  }).replace(/\s+/g, ' ').trim();
+  return { query, filters };
+}
+
 // 1. Advanced Search with Filters & Categories
 router.get('/search', async (req, res) => {
-  const query = String(req.query.q || '').trim();
-  const language = String(req.query.language || '').trim();
-  const year = String(req.query.year || '').trim();
+  const parsedSearch = parseSmartSearch(req.query.q);
+  const query = parsedSearch.query;
+  const language = String(req.query.language || parsedSearch.filters.language || '').trim();
+  const year = String(req.query.year || parsedSearch.filters.year || '').trim();
   const category = String(req.query.category || '').trim();
+  const hasSmartFilters = Object.values(parsedSearch.filters).some(Boolean);
 
-  if (!query && !language && !year && !category) {
+  if (!query && !language && !year && !category && !hasSmartFilters) {
     return res.json({ results: SPOTIFY_JIOSAAVN_TOP_SONGS, albums: CURATED_ALBUMS });
   }
 
   try {
-    let searchTerms = [query];
+    let searchTerms = [query, parsedSearch.filters.artist, parsedSearch.filters.album, parsedSearch.filters.track, parsedSearch.filters.genre];
     if (language) searchTerms.push(language);
     if (year) searchTerms.push(year);
     if (category && category !== 'All') searchTerms.push(category);
@@ -266,9 +280,17 @@ router.get('/search', async (req, res) => {
     const seenIds = new Set();
 
     // 0. Check Curated Master Database for Instant Exact Matches
-    const lowerQ = fullQuery.toLowerCase();
+    // Use free text for the local match; each operator is applied separately
+    // below, so `album:Animal language:Telugu` does not require that exact
+    // sentence to occur in a title.
+    const lowerQ = query.toLowerCase();
     for (const s of SPOTIFY_JIOSAAVN_TOP_SONGS) {
-      if (s.title.toLowerCase().includes(lowerQ) || s.artist.toLowerCase().includes(lowerQ) || (s.album && s.album.toLowerCase().includes(lowerQ))) {
+      const matchesText = !lowerQ || s.title.toLowerCase().includes(lowerQ) || s.artist.toLowerCase().includes(lowerQ) || (s.album && s.album.toLowerCase().includes(lowerQ));
+      const matchesArtist = !parsedSearch.filters.artist || s.artist.toLowerCase().includes(parsedSearch.filters.artist.toLowerCase());
+      const matchesAlbum = !parsedSearch.filters.album || (s.album || '').toLowerCase().includes(parsedSearch.filters.album.toLowerCase());
+      const matchesTrack = !parsedSearch.filters.track || s.title.toLowerCase().includes(parsedSearch.filters.track.toLowerCase());
+      const matchesGenre = !parsedSearch.filters.genre || (s.category || '').toLowerCase().includes(parsedSearch.filters.genre.toLowerCase());
+      if (matchesText && matchesArtist && matchesAlbum && matchesTrack && matchesGenre) {
         if (!seenIds.has(s.id)) {
           seenIds.add(s.id);
           results.push({ ...s, fullTitle: s.title });

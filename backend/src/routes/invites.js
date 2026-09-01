@@ -162,8 +162,6 @@ router.get('/code/:code', requireAuth, (req, res) => {
 // Accept Invite Code & Join Duo Squad Room
 router.post('/accept', requireAuth, (req, res) => {
   const { code } = req.body;
-router.post('/accept', requireAuth, (req, res) => {
-  const { code } = req.body;
   const userId = req.user.id;
 
   if (!code) {

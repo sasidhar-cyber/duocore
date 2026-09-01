@@ -3,6 +3,7 @@ import { useMusic } from '../context/MusicContext';
 import api from '../services/api';
 import {
   Search,
+  Mic,
   Play,
   Pause,
   Download,
@@ -28,6 +29,13 @@ import {
   Keyboard,
   Shuffle
 } from 'lucide-react';
+
+const SMART_SEARCHES = [
+  { label: '🔥 Animal Telugu', query: 'album:Animal language:Telugu' },
+  { label: '💚 Telugu Love', query: 'genre:"Telugu Hits"' },
+  { label: '🌙 Late-night chill', query: 'Lo-Fi Chill' },
+  { label: '⚡ 2024 Hits', query: 'year:2024' }
+];
 
 const GENRE_TAGS = [
   'All Songs',
@@ -88,6 +96,7 @@ export function MusicHomePage({ onOpenPinPrompt }) {
   const [loading, setLoading] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [isVoiceSearching, setIsVoiceSearching] = useState(false);
 
   // Load trending preset tracks, curated albums & recommendations
   useEffect(() => {
@@ -171,6 +180,27 @@ export function MusicHomePage({ onOpenPinPrompt }) {
     executeSearch(sug);
   };
 
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice search is not supported by this browser. Try Chrome on your phone.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'te-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setIsVoiceSearching(true);
+    recognition.onresult = (event) => {
+      const spokenQuery = event.results?.[0]?.[0]?.transcript || '';
+      setSearchQuery(spokenQuery);
+      executeSearch(spokenQuery);
+    };
+    recognition.onerror = () => setIsVoiceSearching(false);
+    recognition.onend = () => setIsVoiceSearching(false);
+    recognition.start();
+  };
+
   const handleSelectCategory = async (cat) => {
     setActiveCategory(cat);
     if (cat === 'All Songs') {
@@ -216,12 +246,12 @@ export function MusicHomePage({ onOpenPinPrompt }) {
     }
   };
 
-  const featuredSong = trendingTracks[0] || {
-    id: 'K4Nkmr0K',
-    title: 'Nanna Nuv Naa Pranam',
-    artist: 'Sonu Nigam, Harshavardhan Rameshwar - ANIMAL (Telugu)',
+  const featuredSong = trendingTracks.find((track) => track.id === 'yXAasilI') || {
+    id: 'yXAasilI',
+    title: 'Evarevaro (Soul Version)',
+    artist: 'Vishal Mishra, Anantha Sriram - ANIMAL (Telugu)',
     duration: '3:45',
-    thumbnail: 'https://c.saavncdn.com/466/Nanna-Nuv-Naa-Pranam-From-ANIMAL-TELUGU-Telugu-2023-20231114011010-500x500.jpg'
+    thumbnail: 'https://c.saavncdn.com/420/Evarevaro-Soul-Version-From-ANIMAL-Telugu-2023-20231223151007-500x500.jpg'
   };
 
   return (
@@ -247,6 +277,14 @@ export function MusicHomePage({ onOpenPinPrompt }) {
                 <X className="w-4 h-4" />
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleVoiceSearch}
+              title="Search by voice"
+              className={`absolute ${searchQuery ? 'right-10' : 'right-3'} top-3 p-1.5 rounded-lg transition-colors ${isVoiceSearching ? 'text-red-400 animate-pulse' : 'text-slate-500 hover:text-emerald-400'}`}
+            >
+              <Mic className="w-4 h-4" />
+            </button>
 
             {/* Auto Suggestions Dropdown */}
             {showSuggestions && suggestions.length > 0 && (
@@ -336,6 +374,21 @@ export function MusicHomePage({ onOpenPinPrompt }) {
             </div>
           </div>
         )}
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 shrink-0">Smart search</span>
+          {SMART_SEARCHES.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => { setSearchQuery(item.query); executeSearch(item.query); }}
+              className="shrink-0 px-3 py-1.5 rounded-full border border-slate-800 bg-slate-900 hover:border-emerald-500/50 hover:text-emerald-300 text-[11px] font-bold text-slate-300 transition-colors"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-500 px-1">Try: <span className="text-slate-400">artist:Sid album:Animal year:2024</span> — or tap the mic and say a song name.</p>
 
         {/* Recent Searches Pills */}
         {!searchQuery && recentSearches.length > 0 && (
@@ -713,6 +766,7 @@ export function MusicHomePage({ onOpenPinPrompt }) {
             )}
           </div>
         </div>
+
       )}
 
       {/* ========================================================================= */}

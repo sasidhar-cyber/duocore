@@ -3,6 +3,7 @@ import api from '../services/api';
 import { getSocket } from '../services/socket';
 import { useAuth } from './AuthContext';
 import { playSound } from '../utils/soundEffects';
+import { showBrowserNotification } from '../utils/notificationService';
 
 const RoomContext = createContext(null);
 
@@ -146,6 +147,12 @@ export function RoomProvider({ children }) {
 
         if (msg.sender_id !== user?.id) {
           playSound('message');
+          if (localStorage.getItem('duocore_notifications_enabled') !== 'false' && document.hidden) {
+            showBrowserNotification(msg.username || 'New message', {
+              body: msg.text || 'Sent you an attachment',
+              tag: `duocore-${msg.room_id}`
+            });
+          }
         }
       }
     };
@@ -249,6 +256,13 @@ export function RoomProvider({ children }) {
       setPrivateMessages(updateList);
     };
 
+    const handleRoomCleared = ({ roomId }) => {
+      if (roomId === currentRoomIdRef.current) {
+        setNormalMessages([]);
+        setPrivateMessages([]);
+      }
+    };
+
     s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
     s.on('chat:partner_typing', handlePartnerTyping);
@@ -262,6 +276,7 @@ export function RoomProvider({ children }) {
     s.on('duo:partner_removed', handleDuoPartnerRemoved);
     s.on('timer:state_sync', handleTimerSync);
     s.on('chat:reaction_updated', handleReaction);
+    s.on('chat:room_cleared', handleRoomCleared);
 
     return () => {
       s.off('connect', handleSocketConnect);
@@ -277,6 +292,7 @@ export function RoomProvider({ children }) {
       s.off('duo:partner_removed', handleDuoPartnerRemoved);
       s.off('timer:state_sync', handleTimerSync);
       s.off('chat:reaction_updated', handleReaction);
+      s.off('chat:room_cleared', handleRoomCleared);
     };
   }, [user?.id, refreshPartnerState]);
 
@@ -318,20 +334,6 @@ export function RoomProvider({ children }) {
 
   const sendMessage = async ({ text, channel = activeChannel, metadata = {}, replyTo = null, fileUrl = null, fileType = null }) => {
     if (!roomData) return;
-    const s = getSocket();
-    const payload = {
-      roomId: roomData.id,
-      text: text || '',
-      channel: channel || 'normal',
-      metadata,
-      replyTo,
-      fileUrl,
-      fileType
-    };
-
-    if (s && s.connected) {
-      s.emit('chat:send_message', payload);
-    }
 
     try {
       const res = await api.sendRoomMessage(roomData.id, {
@@ -342,16 +344,18 @@ export function RoomProvider({ children }) {
         file_url: fileUrl,
         file_type: fileType
       });
-      if (res.message) {
+      // The REST route broadcasts the saved message to Socket.IO. Keeping one
+      // write path prevents duplicate messages and unnecessary re-renders.
+      if (res.data) {
         if (channel === 'private') {
           setPrivateMessages((prev) => {
-            if (prev.some((m) => m.id === res.message.id)) return prev;
-            return [...prev, res.message];
+            if (prev.some((m) => m.id === res.data.id)) return prev;
+            return [...prev, res.data];
           });
         } else {
           setNormalMessages((prev) => {
-            if (prev.some((m) => m.id === res.message.id)) return prev;
-            return [...prev, res.message];
+            if (prev.some((m) => m.id === res.data.id)) return prev;
+            return [...prev, res.data];
           });
         }
       }

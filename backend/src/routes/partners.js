@@ -148,18 +148,11 @@ router.post('/join-room', requireAuth, (req, res) => {
       hostId = room.created_by;
       db.prepare('UPDATE rooms SET is_active = 1 WHERE id = ?').run(roomId);
     } else {
-      // 2. If room doesn't exist yet, auto-create it with this code/name
-      roomId = 'room-duo-' + uuidv4().slice(0, 8);
-      hostId = userId;
-      const roomCode = digitsOnly ? fullDuoCode : rawClean;
-      const roomName = `${roomCode} Room`;
-
-      db.prepare(`
-        INSERT OR REPLACE INTO rooms (id, code, name, passcode_hash, created_by, is_active, created_at)
-        VALUES (?, ?, ?, '', ?, 1, ?)
-      `).run(roomId, roomCode, roomName, userId, now);
-
-      room = db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId);
+      // Joining must never silently create a new room. That made two friends
+      // appear connected while each was actually in a different empty room.
+      return res.status(404).json({
+        error: 'Room code not found. Ask your friend to create a room first, then share the exact code.'
+      });
     }
 
     // Clear user's other solo rooms

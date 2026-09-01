@@ -226,6 +226,29 @@ router.delete('/:roomId/messages/:messageId', requireAuth, (req, res) => {
   res.json({ message: 'Message deleted', messageId });
 });
 
+// Panic clear: used only after the owner has enabled the failed-PIN safety rule.
+// Messages are soft-deleted so a client can immediately hide them without
+// leaving partially visible message content in the active conversation.
+router.post('/:roomId/panic-clear', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  const result = db.prepare(`
+    UPDATE messages
+    SET is_deleted = 1, text = '🚫 This message was deleted', metadata = '{}'
+    WHERE room_id = ? AND is_deleted = 0
+  `).run(roomId);
+
+  const io = req.app.get('io');
+  if (io) io.to(roomId).emit('chat:room_cleared', { roomId, clearedBy: userId });
+
+  res.json({ success: true, cleared: result.changes });
+});
+
 /* ========================================================================= */
 /* STARRED & PINNED MESSAGES                                                 */
 /* ========================================================================= */

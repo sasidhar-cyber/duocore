@@ -55,13 +55,13 @@ export function DuoChatScreen({ isOpen, onClose }) {
     setPinError('');
 
     const clean = String(enteredPin || '').trim();
-    if (clean === savedPin || clean === '1234' || clean.length === 4) {
+    if (clean === savedPin) {
       setIsPinUnlocked(true);
       setEnteredPin('');
       try { playSound('quiz_correct'); } catch (err) {}
       refreshPartnerState();
     } else {
-      setPinError('Incorrect PIN. Try 1234');
+      setPinError('Incorrect PIN. Please try again.');
       setEnteredPin('');
       try { playSound('quiz_wrong'); } catch (err) {}
     }

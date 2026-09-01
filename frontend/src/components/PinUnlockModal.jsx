@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { X, Lock, Sparkles, Delete } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
+import { useRoom } from '../context/RoomContext';
+import api from '../services/api';
 
 export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState('');
+  const [isClearing, setIsClearing] = useState(false);
+  const { roomData } = useRoom();
 
   const savedPin = localStorage.getItem('soundwave_vault_pin') || localStorage.getItem('duocore_vault_pin') || '1234';
 
@@ -29,6 +33,7 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
   if (!isOpen) return null;
 
   const triggerUnlock = () => {
+    localStorage.removeItem('duocore_pin_failures');
     try { playSound('quiz_correct'); } catch (err) {}
     onUnlockSuccess();
   };
@@ -38,7 +43,7 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
     const next = (enteredPin + digit).slice(0, 4);
     setEnteredPin(next);
 
-    if (next === savedPin || next === '1234') {
+    if (next === savedPin) {
       triggerUnlock();
     }
   };
@@ -50,10 +55,25 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
 
   const handlePinSubmit = (e) => {
     e?.preventDefault();
-    if (enteredPin === savedPin || enteredPin === '1234') {
+    if (enteredPin === savedPin) {
       triggerUnlock();
     } else {
-      setPinError('Incorrect PIN. Default is 1234');
+      const failures = Number(localStorage.getItem('duocore_pin_failures') || '0') + 1;
+      localStorage.setItem('duocore_pin_failures', String(failures));
+      const limit = Number(localStorage.getItem('duocore_pin_failure_limit') || '3');
+      const shouldClear = localStorage.getItem('duocore_panic_clear_enabled') === 'true' && failures >= limit;
+      if (shouldClear && roomData?.id) {
+        setIsClearing(true);
+        api.panicClearRoomMessages(roomData.id)
+          .then(() => setPinError('Too many incorrect PINs. Chat has been cleared.'))
+          .catch(() => setPinError('Too many incorrect PINs. Could not clear chat while offline.'))
+          .finally(() => {
+            localStorage.removeItem('duocore_pin_failures');
+            setIsClearing(false);
+          });
+      } else {
+        setPinError(`Incorrect PIN. ${Math.max(0, limit - failures)} attempts remaining.`);
+      }
       setEnteredPin('');
       try { playSound('quiz_wrong'); } catch (err) {}
     }
@@ -106,6 +126,7 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
               key={num}
               type="button"
               onClick={() => handleKeypadPress(num)}
+              disabled={isClearing}
               className="h-11 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-lg font-bold text-white active:scale-95 active:bg-emerald-500 active:text-slate-950 transition-all flex items-center justify-center shadow-sm"
             >
               {num}
@@ -121,6 +142,7 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
           <button
             type="button"
             onClick={() => handleKeypadPress('0')}
+            disabled={isClearing}
             className="h-11 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-lg font-bold text-white active:scale-95 active:bg-emerald-500 active:text-slate-950 transition-all flex items-center justify-center shadow-sm"
           >
             0
@@ -128,9 +150,10 @@ export function PinUnlockModal({ isOpen, onClose, onUnlockSuccess }) {
           <button
             type="button"
             onClick={handlePinSubmit}
+            disabled={isClearing}
             className="h-11 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-xs font-black text-slate-950 active:scale-95 transition-all flex items-center justify-center shadow-md shadow-emerald-500/30"
           >
-            🔓
+            {isClearing ? '…' : '🔓'}
           </button>
         </div>
 

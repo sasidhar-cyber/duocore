@@ -125,6 +125,7 @@ export default {
   updateRoomStatus: (roomId, body) => apiRequest(`/rooms/${roomId}/status`, { method: 'PATCH', body }),
   markMessagesRead: (roomId, body) => apiRequest(`/rooms/${roomId}/messages/read`, { method: 'POST', body }),
   deleteMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}`, { method: 'DELETE' }),
+  panicClearRoomMessages: (roomId) => apiRequest(`/rooms/${roomId}/panic-clear`, { method: 'POST' }),
 
   // Starred & Pinned Messages
   starMessage: (roomId, messageId) => apiRequest(`/rooms/${roomId}/messages/${messageId}/star`, { method: 'POST' }),

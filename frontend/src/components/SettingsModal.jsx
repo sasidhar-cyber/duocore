@@ -23,6 +23,7 @@ import {
   Volume2
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
+import { requestNotificationPermission } from '../utils/notificationService';
 
 const MUSIC_THEMES = [
   { id: 'spotify', name: 'Spotify Green', color: 'from-emerald-500 to-green-600', border: 'border-emerald-500' },
@@ -67,6 +68,29 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
   // Vault PIN state
   const [vaultPin, setVaultPin] = useState(localStorage.getItem('duocore_vault_pin') || '1234');
   const [newVaultPin, setNewVaultPin] = useState('');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => localStorage.getItem('duocore_notifications_enabled') !== 'false');
+  const [panicClearEnabled, setPanicClearEnabled] = useState(() => localStorage.getItem('duocore_panic_clear_enabled') === 'true');
+  const [pinFailureLimit, setPinFailureLimit] = useState(() => localStorage.getItem('duocore_pin_failure_limit') || '3');
+
+  const handleNotificationToggle = async () => {
+    const next = !notificationsEnabled;
+    if (next) {
+      const permission = await requestNotificationPermission();
+      if (permission !== 'granted') {
+        setError('Allow notifications in your browser settings to turn them on.');
+        return;
+      }
+    }
+    localStorage.setItem('duocore_notifications_enabled', String(next));
+    setNotificationsEnabled(next);
+    setMessage(next ? 'Message notifications are on.' : 'Message notifications are off.');
+  };
+
+  const savePanicSettings = () => {
+    localStorage.setItem('duocore_panic_clear_enabled', String(panicClearEnabled));
+    localStorage.setItem('duocore_pin_failure_limit', pinFailureLimit);
+    setMessage(panicClearEnabled ? `Chat will clear after ${pinFailureLimit} incorrect PIN attempts.` : 'Failed-PIN chat clearing is off.');
+  };
 
   if (!isOpen) return null;
 
@@ -316,6 +340,16 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                   📱 Install App
                 </button>
               </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Message notifications</h4>
+                  <p className="text-[10px] text-slate-400">Show a notification for new chat messages while this app is in the background.</p>
+                </div>
+                <button type="button" onClick={handleNotificationToggle} className={`shrink-0 px-3 py-2 rounded-xl text-xs font-black ${notificationsEnabled ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-300'}`}>
+                  {notificationsEnabled ? 'On' : 'Off'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -456,7 +490,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!newVaultPin.trim() || newVaultPin.trim().length !== 4) {
+                  if (!/^\d{4}$/.test(newVaultPin.trim())) {
                     setError('PIN must be exactly 4 digits (e.g. 1234)');
                     return;
                   }
@@ -480,7 +514,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                     maxLength={4}
                     placeholder="Enter new 4-digit PIN"
                     value={newVaultPin}
-                    onChange={(e) => setNewVaultPin(e.target.value)}
+                    onChange={(e) => setNewVaultPin(e.target.value.replace(/\D/g, ''))}
                     className="flex-1 glass-input rounded-xl px-3 py-2 text-center text-xs font-mono text-emerald-400"
                   />
                   <button
@@ -491,6 +525,25 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                   </button>
                 </div>
               </form>
+
+              <div className="p-4 rounded-2xl bg-red-950/20 border border-red-500/30 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-black text-white">Clear chat after wrong PIN attempts</h4>
+                    <p className="text-[10px] text-slate-400 mt-1">Deletes messages in the current Duo Chat after repeated wrong PINs. Use only if you accept this cannot be undone.</p>
+                  </div>
+                  <button type="button" onClick={() => setPanicClearEnabled((value) => !value)} className={`shrink-0 px-3 py-2 rounded-xl text-xs font-black ${panicClearEnabled ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
+                    {panicClearEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select value={pinFailureLimit} onChange={(e) => setPinFailureLimit(e.target.value)} className="glass-input rounded-xl px-3 py-2 text-xs text-white">
+                    <option value="2">After 2 attempts</option>
+                    <option value="3">After 3 attempts</option>
+                  </select>
+                  <button type="button" onClick={savePanicSettings} className="px-3 py-2 rounded-xl bg-red-500/90 text-white text-xs font-black">Save safety rule</button>
+                </div>
+              </div>
             </div>
           )}
 
