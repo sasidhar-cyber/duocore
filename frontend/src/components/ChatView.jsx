@@ -54,8 +54,26 @@ const CHAT_THEMES = [
   { id: 'minimal', name: 'Minimal Slate', bg: 'bg-slate-900', bubbleMe: 'bg-cyan-600', bubbleOther: 'bg-slate-800' }
 ];
 
+export function getMediaUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  const apiBase = import.meta.env.VITE_API_BASE || '';
+  if (apiBase.startsWith('http://') || apiBase.startsWith('https://')) {
+    try {
+      const origin = new URL(apiBase).origin;
+      return `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+    } catch {
+      return url;
+    }
+  }
+  return url;
+}
+
 // WhatsApp Style Voice Note Player
 function AudioMemoPlayer({ fileUrl }) {
+  const resolvedUrl = getMediaUrl(fileUrl);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -1075,24 +1093,24 @@ export function ChatView({ onBack, onOpenInvite }) {
                 {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
                   <div className="rounded-2xl overflow-hidden max-h-80 border border-white/10 relative group/img mt-1">
                     <img
-                      src={meta.fileUrl}
+                      src={getMediaUrl(meta.fileUrl)}
                       alt="Photo"
                       loading="lazy"
                       className="w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                      onClick={() => setPreviewImageModal(meta.fileUrl)}
+                      onClick={() => setPreviewImageModal(getMediaUrl(meta.fileUrl))}
                     />
                   </div>
                 )}
 
                 {/* Voice Note Player */}
                 {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
-                  <AudioMemoPlayer fileUrl={meta.fileUrl} />
+                  <AudioMemoPlayer fileUrl={getMediaUrl(meta.fileUrl)} />
                 )}
 
                 {/* Generic File Download */}
                 {meta?.fileUrl && !meta?.fileType?.startsWith('image/') && !meta?.fileType?.startsWith('audio/') && (
                   <a
-                    href={meta.fileUrl}
+                    href={getMediaUrl(meta.fileUrl)}
                     target="_blank"
                     rel="noreferrer"
                     className="p-2.5 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-1"

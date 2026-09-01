@@ -146,12 +146,14 @@ export function RoomProvider({ children }) {
         }
 
         if (msg.sender_id !== user?.id) {
-          playSound('message');
-          if (localStorage.getItem('duocore_notifications_enabled') !== 'false' && document.hidden) {
-            showBrowserNotification(msg.username || 'New message', {
-              body: msg.text || 'Sent you an attachment',
-              tag: `duocore-${msg.room_id}`
-            });
+          if (localStorage.getItem('duocore_notif_messages') !== 'false') {
+            playSound('message');
+            if (document.hidden) {
+              showBrowserNotification(msg.username || 'DuoCore Message', {
+                body: msg.text || 'Sent you an attachment',
+                tag: `duocore-${msg.room_id}`
+              });
+            }
           }
         }
       }
@@ -171,13 +173,23 @@ export function RoomProvider({ children }) {
 
     const handlePartnerJoined = (data) => {
       if (data.userId !== user?.id) {
-        playSound('message');
+        if (localStorage.getItem('duocore_notif_invites') !== 'false') {
+          playSound('quiz_correct');
+          if (document.hidden) {
+            showBrowserNotification('Duo Partner Connected', {
+              body: `${data.username || 'Your friend'} has joined your private room!`,
+              tag: 'duocore-partner'
+            });
+          }
+        }
         refreshPartnerState();
       }
     };
 
     const handleMemberJoined = () => {
-      playSound('quiz_correct');
+      if (localStorage.getItem('duocore_notif_invites') !== 'false') {
+        playSound('quiz_correct');
+      }
       refreshPartnerState();
     };
 
