@@ -482,32 +482,46 @@ export function ChatView({ onOpenInvite, onBack }) {
           )}
 
           <div className="relative shrink-0">
-            <Avatar
-              src={otherPartner?.avatar_url}
-              name={otherPartner?.username || 'Partner'}
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ring-2 ring-emerald-500/40"
-            />
-            <div
-              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
-                otherPartner?.is_online ? 'bg-emerald-400' : 'bg-slate-600'
-              }`}
-            />
+            {hasPartner ? (
+              <>
+                <Avatar
+                  src={otherPartner?.avatar_url}
+                  name={otherPartner?.username || 'Partner'}
+                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ring-2 ring-emerald-500/40"
+                />
+                <div
+                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
+                    otherPartner?.is_online ? 'bg-emerald-400' : 'bg-slate-600'
+                  }`}
+                />
+              </>
+            ) : (
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">
+                🎮
+              </div>
+            )}
           </div>
 
           <div className="min-w-0">
             <h4 className="text-sm sm:text-base font-black text-white truncate flex items-center gap-2">
-              <span>{otherPartner?.username || 'Duo Partner'}</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                {roomData?.code || 'DUO-ROOM'}
-              </span>
+              <span>{hasPartner ? (otherPartner?.username || 'Duo Partner') : '1v1 Duo Chat Lobby'}</span>
+              {roomData?.code && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                  {roomData.code}
+                </span>
+              )}
             </h4>
             <p className="text-[11px] font-mono truncate">
-              {isPartnerTyping ? (
-                <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
-              ) : otherPartner?.is_online ? (
-                <span className="text-emerald-400 font-medium">Online</span>
+              {hasPartner ? (
+                isPartnerTyping ? (
+                  <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
+                ) : otherPartner?.is_online ? (
+                  <span className="text-emerald-400 font-medium">Online</span>
+                ) : (
+                  <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
+                )
               ) : (
-                <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
+                <span className="text-yellow-400 font-bold">⚠️ Unpaired • Enter Room Code to Connect</span>
               )}
             </p>
           </div>
@@ -1027,91 +1041,93 @@ export function ChatView({ onOpenInvite, onBack }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 3. WHATSAPP BOTTOM COMPOSER                                               */}
+      {/* 3. WHATSAPP BOTTOM COMPOSER (Active only when paired)                     */}
       {/* ========================================================================= */}
-      <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileUpload}
-          className="hidden"
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
-        />
+      {hasPartner && (
+        <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+          />
 
-        <button
-          onClick={() => setCameraModalOpen(true)}
-          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-          title="Take Photo with Camera"
-        >
-          <Camera className="w-4 h-4" />
-        </button>
+          <button
+            onClick={() => setCameraModalOpen(true)}
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
+            title="Take Photo with Camera"
+          >
+            <Camera className="w-4 h-4" />
+          </button>
 
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-          title="Attach Photo / Document"
-        >
-          <Paperclip className="w-4 h-4" />
-        </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
+            title="Attach Photo / Document"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
 
-        <button
-          onClick={() => setLocationConfirmOpen(true)}
-          className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0 hidden sm:block"
-          title="Share Live GPS Location"
-        >
-          <MapPin className="w-4 h-4" />
-        </button>
+          <button
+            onClick={() => setLocationConfirmOpen(true)}
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0 hidden sm:block"
+            title="Share Live GPS Location"
+          >
+            <MapPin className="w-4 h-4" />
+          </button>
 
-        {isRecording ? (
-          <div className="flex-1 flex items-center justify-between bg-red-950/60 border border-red-500/40 rounded-2xl px-4 py-2 animate-pulse">
-            <div className="flex items-center gap-2 text-red-400 font-mono text-xs font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-              <span>Recording Voice Note: {recordingSeconds}s</span>
+          {isRecording ? (
+            <div className="flex-1 flex items-center justify-between bg-red-950/60 border border-red-500/40 rounded-2xl px-4 py-2 animate-pulse">
+              <div className="flex items-center gap-2 text-red-400 font-mono text-xs font-bold">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                <span>Recording Voice Note: {recordingSeconds}s</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelRecording}
+                  className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={stopRecording}
+                  className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black"
+                >
+                  Send 🎙️
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={cancelRecording}
-                className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white text-xs font-bold"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={stopRecording}
-                className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black"
-              >
-                Send 🎙️
-              </button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
-            <input
-              type="text"
-              placeholder="Type a message or paste a link..."
-              value={messageText}
-              onChange={handleTextChange}
-              className="flex-1 glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-emerald-500"
-            />
+          ) : (
+            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
+              <input
+                type="text"
+                placeholder="Type a message or paste a link..."
+                value={messageText}
+                onChange={handleTextChange}
+                className="flex-1 glass-input rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:border-emerald-500"
+              />
 
-            <button
-              type="button"
-              onClick={startRecording}
-              className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-              title="Hold to Record Voice Note"
-            >
-              <Mic className="w-4 h-4" />
-            </button>
+              <button
+                type="button"
+                onClick={startRecording}
+                className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
+                title="Hold to Record Voice Note"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
 
-            <button
-              type="submit"
-              disabled={!messageText.trim()}
-              className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:bg-emerald-500 text-slate-950 font-black transition-all shadow-md shadow-emerald-500/30 active:scale-95 shrink-0"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-        )}
-      </div>
+              <button
+                type="submit"
+                disabled={!messageText.trim()}
+                className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:bg-emerald-500 text-slate-950 font-black transition-all shadow-md shadow-emerald-500/30 active:scale-95 shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Location Sharing Confirmation Modal */}
       {locationConfirmOpen && (

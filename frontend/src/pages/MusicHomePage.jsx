@@ -217,11 +217,11 @@ export function MusicHomePage({ onOpenPinPrompt }) {
   };
 
   const featuredSong = trendingTracks[0] || {
-    id: 'EdvydlHCViY',
-    title: 'Pushpa Pushpa',
-    artist: 'Devi Sri Prasad, Mika Singh - Pushpa 2',
-    duration: '4:20',
-    thumbnail: 'https://i.ytimg.com/vi/EdvydlHCViY/hq720.jpg'
+    id: 'K4Nkmr0K',
+    title: 'Nanna Nuv Naa Pranam',
+    artist: 'Sonu Nigam, Harshavardhan Rameshwar - ANIMAL (Telugu)',
+    duration: '3:45',
+    thumbnail: 'https://c.saavncdn.com/466/Nanna-Nuv-Naa-Pranam-From-ANIMAL-TELUGU-Telugu-2023-20231114011010-500x500.jpg'
   };
 
   return (
