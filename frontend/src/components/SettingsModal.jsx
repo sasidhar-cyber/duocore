@@ -21,7 +21,10 @@ import {
   Eye,
   VolumeX,
   Volume2,
-  AlertCircle
+  AlertCircle,
+  Info,
+  Database,
+  LockKeyhole
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { requestNotificationPermission } from '../utils/notificationService';
@@ -45,9 +48,9 @@ const DISGUISE_NAMES = [
 
 export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
   const { user, updateUser } = useAuth();
-  const { appTitle, changeAppTitle, activeTheme, changeTheme, openSecretChat } = useMusic();
+  const { appTitle, changeAppTitle, activeTheme, changeTheme } = useMusic();
 
-  const [activeTab, setActiveTab] = useState('app'); // 'app', 'notifications', 'account', 'security', 'vault'
+  const [activeTab, setActiveTab] = useState('app'); // 'app', 'notifications', 'account', 'vault', 'privacy', 'about'
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -155,44 +158,6 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
     }
   };
 
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
-    setError('');
-    setMessage('');
-
-    if (newPassword !== confirmPassword) {
-      setError('New passwords do not match.');
-      playSound('quiz_wrong');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
-      playSound('quiz_wrong');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await api.changePassword({
-        currentPassword,
-        newPassword
-      });
-
-      setMessage('Password updated successfully! 🔒');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      playSound('quiz_correct');
-      setTimeout(() => setMessage(''), 3000);
-    } catch (err) {
-      setError(err.message || 'Failed to update password.');
-      playSound('quiz_wrong');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleUpdateVaultPin = (e) => {
     e.preventDefault();
     if (!newVaultPin || newVaultPin.length !== 4) {
@@ -237,7 +202,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             </div>
             <div>
               <h3 className="text-sm sm:text-base font-black text-white">DuoCore Settings</h3>
-              <p className="text-[10px] text-emerald-400 font-mono">Preferences, Notifications & Privacy</p>
+              <p className="text-[10px] text-emerald-400 font-mono">Preferences, Security & Information</p>
             </div>
           </div>
 
@@ -262,7 +227,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
         )}
 
         {/* Tabs Bar */}
-        <div className="grid grid-cols-4 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[11px] font-bold">
+        <div className="grid grid-cols-5 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-[10px] sm:text-[11px] font-bold">
           <button
             onClick={() => { setActiveTab('app'); setError(''); setMessage(''); }}
             className={`py-2 rounded-xl transition-all ${
@@ -294,6 +259,14 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
             }`}
           >
             🔒 Stealth
+          </button>
+          <button
+            onClick={() => { setActiveTab('about'); setError(''); setMessage(''); }}
+            className={`py-2 rounded-xl transition-all ${
+              activeTab === 'about' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            ℹ️ About
           </button>
         </div>
 
@@ -383,7 +356,6 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
           {/* TAB 2: NOTIFICATIONS CONTROLS */}
           {activeTab === 'notifications' && (
             <div className="space-y-3.5 animate-in fade-in">
-              {/* Permission Banner */}
               <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
                 <div>
                   <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -636,6 +608,37 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                 >
                   Save Stealth Settings
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: PRIVACY & ABOUT DUOCORE */}
+          {activeTab === 'about' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                  <Shield className="w-4 h-4" />
+                  <span>Privacy & Architecture Transparency</span>
+                </div>
+                <ul className="text-[11px] text-slate-300 space-y-1.5 leading-relaxed list-disc list-inside">
+                  <li><span className="font-bold text-white">Transport Encryption:</span> All communications occur over encrypted TLS/HTTPS and Secure WebSockets (WSS).</li>
+                  <li><span className="font-bold text-white">Persistence Model:</span> Private chat messages are stored server-side in SQLite with automated persistent cloud synchronization to Supabase PostgreSQL.</li>
+                  <li><span className="font-bold text-white">Encryption Scope:</span> Standard server-side storage with transport encryption (not client-side E2EE).</li>
+                  <li><span className="font-bold text-white">Emergency Panic Clear:</span> Instantly wipes all messages from server database and both devices.</li>
+                </ul>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2 text-center">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg mx-auto font-black">
+                  ⚡
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white">DuoCore v1.0.0</h4>
+                  <p className="text-[10px] text-emerald-400 font-mono">1v1 Stealth Duo Chat & High-Fidelity Music</p>
+                </div>
+                <p className="text-[11px] text-slate-400 pt-1">
+                  Built for seamless music sharing, crystal-clear WebRTC calling, and private 1v1 conversations.
+                </p>
               </div>
             </div>
           )}

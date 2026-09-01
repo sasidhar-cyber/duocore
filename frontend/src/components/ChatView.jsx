@@ -222,6 +222,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   // Location Modal Confirmation
   const [locationConfirmOpen, setLocationConfirmOpen] = useState(false);
+  const [partnerInfoOpen, setPartnerInfoOpen] = useState(false);
 
   // Calls
   const [videoCallOpen, setVideoCallOpen] = useState(false);
@@ -642,10 +643,19 @@ export function ChatView({ onBack, onOpenInvite }) {
     <div className={`h-full w-full flex flex-col ${currentThemeObj.bg} rounded-3xl border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}>
       {/* 1. 1v1 PRIVATE CHAT HEADER */}
       <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+        <div
+          onClick={() => {
+            if (hasPartner) setPartnerInfoOpen(true);
+          }}
+          className={`flex items-center gap-3 min-w-0 ${hasPartner ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+          title={hasPartner ? 'View Partner Profile & Room Options' : 'Duo Chat Lobby'}
+        >
           {onBack && (
             <button
-              onClick={onBack}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all mr-1 shrink-0"
               title="Back to Music Player"
             >
@@ -1655,6 +1665,147 @@ export function ChatView({ onBack, onOpenInvite }) {
             setCameraModalOpen(false);
           }}
         />
+      )}
+
+      {/* Partner Profile Modal */}
+      {partnerInfoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in select-none">
+          <div className="w-full max-w-sm glass-panel p-6 rounded-3xl bg-slate-950/95 border border-emerald-500/40 shadow-2xl space-y-5 relative">
+            <button
+              onClick={() => setPartnerInfoOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-3 pt-2">
+              <div className="relative w-20 h-20 mx-auto">
+                <Avatar
+                  src={otherPartner?.avatar_url}
+                  name={otherPartner?.username || 'Partner'}
+                  className="w-20 h-20 rounded-3xl ring-4 ring-emerald-500/40 shadow-xl"
+                />
+                <div
+                  className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-slate-950 ${
+                    otherPartner?.is_online ? 'bg-emerald-400 ring-2 ring-emerald-400/50' : 'bg-slate-600'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white">{otherPartner?.username || 'Duo Partner'}</h3>
+                <p className="text-xs text-emerald-400 font-mono font-bold">
+                  {otherPartner?.is_online ? 'Active Now (Online)' : `Last seen ${formatLastSeen(otherPartner?.last_seen)}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Room Info */}
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-center">
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
+                PAIRED 1v1 ROOM CODE
+              </span>
+              <div className="text-2xl font-black font-mono text-emerald-400 tracking-wider">
+                {roomData?.code || '---'}
+              </div>
+              <div className="flex gap-2 justify-center pt-1">
+                <button
+                  onClick={handleCopyCode}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedCode ? 'Copied!' : 'Copy'}</span>
+                </button>
+                <button
+                  onClick={handleCopyWhatsApp}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-300 text-xs font-bold hover:bg-emerald-600/50 flex items-center gap-1.5"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Invite</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Call Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  startAudioCall();
+                }}
+                className="py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Audio Call</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  startVideoCall();
+                }}
+                className="py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-cyan-500/20 active:scale-95"
+              >
+                <Video className="w-4 h-4" />
+                <span>HD Video</span>
+              </button>
+            </div>
+
+            {/* Quick Media & Starred Links */}
+            <div className="space-y-1.5 pt-1">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handleOpenMediaGallery();
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-cyan-400" />
+                  <span>Shared Media, Links & Docs</span>
+                </div>
+                <span className="text-slate-500 text-xs">›</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handleOpenStarred();
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                  <span>Starred Messages</span>
+                </div>
+                <span className="text-slate-500 text-xs">›</span>
+              </button>
+            </div>
+
+            {/* Emergency Clear & Unpair */}
+            <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handlePanicClear();
+                }}
+                className="flex-1 py-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/20"
+              >
+                🚨 Wipe Chat
+              </button>
+
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handleUnpair();
+                }}
+                className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/30 text-xs font-bold hover:bg-red-500/20"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
