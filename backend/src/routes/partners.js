@@ -129,16 +129,16 @@ router.post('/join-room', requireAuth, (req, res) => {
 
   try {
     const rawClean = String(code).trim().toUpperCase();
-    const digitsOnly = rawClean.replace(/[^0-9]/g, '');
-    const fullDuoCode = digitsOnly ? `DUO-${digitsOnly}` : rawClean;
+    const isPureDigits = /^\d{3,6}$/.test(rawClean);
+    const fullDuoCode = isPureDigits ? `DUO-${rawClean}` : rawClean;
     const now = new Date().toISOString();
 
-    // 1. Look for existing room matching any formatting variation or custom name
+    // 1. Look for existing room matching exact code or pure-digit DUO-formatted code
     let room = db.prepare(`
       SELECT * FROM rooms 
-      WHERE code = ? OR code = ? OR code = ? OR code LIKE ?
+      WHERE code = ? OR code = ?
       LIMIT 1
-    `).get(fullDuoCode, digitsOnly, rawClean, `%${digitsOnly || rawClean}%`);
+    `).get(rawClean, fullDuoCode);
 
     let roomId;
     let hostId;

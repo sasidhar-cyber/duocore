@@ -1084,7 +1084,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
               <div
                 id={`msg-${msg.id}`}
-                className={`flex items-end gap-1.5 group transition-all animate-in fade-in duration-100 ${isFirstInGroup ? 'mt-2.5' : 'mt-0.5'} ${isMe ? 'justify-end' : 'justify-start'}`}
+                className={`w-full flex items-end gap-1.5 group transition-all animate-in fade-in duration-100 ${isFirstInGroup ? 'mt-2.5' : 'mt-0.5'} ${isMe ? 'justify-end' : 'justify-start'}`}
               >
                 {/* Receiver Avatar (Only on last message of group) */}
                 {!isMe && (
@@ -1099,11 +1099,29 @@ export function ChatView({ onBack, onOpenInvite }) {
                   )
                 )}
 
+                {/* Context Action Menu for Sent Messages (appears on the left of my bubble) */}
+                {isMe && (
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-0.5 shadow-lg transition-opacity shrink-0">
+                    <button onClick={() => setReplyTo(msg)} className="p-1 text-slate-400 hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => handleToggleStar(msg)} className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`} title="Star">
+                      <Star className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => handleTogglePin(msg)} className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`} title="Pin">
+                      <Pin className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => setDeleteMsgConfirmId(msg.id)} className="p-1 text-slate-400 hover:text-red-400" title="Delete message">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+
                 <div
-                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-2.5 sm:p-3 space-y-1 shadow-md relative ${
+                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-2.5 sm:p-3 space-y-1 shadow-md relative text-left break-words ${
                     isMe
-                      ? `${currentThemeObj.bubbleMe} text-white ${isLastInGroup ? 'rounded-br-xs' : 'rounded-br-2xl'} ml-auto`
-                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 ${isLastInGroup ? 'rounded-bl-xs' : 'rounded-bl-2xl'} mr-auto`
+                      ? `${currentThemeObj.bubbleMe} text-white ${isLastInGroup ? 'rounded-br-xs' : 'rounded-br-2xl'}`
+                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 ${isLastInGroup ? 'rounded-bl-xs' : 'rounded-bl-2xl'}`
                   }`}
                 >
                   {/* Reply Quote Preview */}
@@ -1131,52 +1149,60 @@ export function ChatView({ onBack, onOpenInvite }) {
                     </div>
                   )}
 
-                  {/* Shared Music Card */}
+                  {/* Song Card Preview */}
                   {meta?.song && (
-                    <div className="p-2.5 rounded-2xl bg-black/40 border border-white/20 space-y-2">
-                      <div className="flex items-center gap-2.5">
-                        <img
-                          src={meta.song.thumbnail}
-                          alt={meta.song.title}
-                          className="w-12 h-12 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className="text-[8px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
-                            DUOCORE TRACK
-                          </span>
-                          <h4 className="text-xs font-black text-white truncate">{meta.song.title}</h4>
-                          <p className="text-[10px] text-slate-300 truncate">{meta.song.artist}</p>
-                        </div>
+                    <div className="p-2 rounded-xl bg-black/40 border border-emerald-500/30 flex items-center justify-between gap-2 max-w-xs">
+                      <img
+                        src={meta.song.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100'}
+                        alt={meta.song.title}
+                        className="w-10 h-10 rounded-lg object-cover"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold text-white truncate">{meta.song.title}</h4>
+                        <p className="text-[10px] text-slate-400 truncate">{meta.song.artist}</p>
                       </div>
-
                       <button
                         onClick={() => {
                           playTrack(meta.song);
                           openNowPlaying();
                         }}
-                        className="w-full py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
+                        className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shrink-0 transition-transform active:scale-95"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Play on DuoCore</span>
                       </button>
                     </div>
                   )}
 
-                  {/* Photo / Image */}
+                  {/* Image Attachment Preview */}
                   {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
-                    <div className="rounded-xl overflow-hidden max-h-72 border border-white/10 relative group/img mt-0.5">
+                    <div className="relative rounded-xl overflow-hidden border border-white/10 my-1 max-w-sm">
                       <img
                         src={getMediaUrl(meta.fileUrl)}
-                        alt="Photo"
-                        loading="lazy"
-                        className="w-full h-auto max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                        alt="Shared image"
+                        className="max-h-60 w-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
                         onClick={() => setPreviewImageModal(getMediaUrl(meta.fileUrl))}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400';
+                        }}
                       />
                     </div>
                   )}
 
-                  {/* Voice Note Player */}
-                  {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
+                  {/* Video Attachment Preview */}
+                  {meta?.fileUrl && meta?.fileType?.startsWith('video/') && (
+                    <div className="rounded-xl overflow-hidden border border-white/10 my-1 max-w-sm">
+                      <video
+                        src={getMediaUrl(meta.fileUrl)}
+                        controls
+                        playsInline
+                        className="max-h-60 w-full rounded-xl bg-black"
+                      />
+                    </div>
+                  )}
+
+                  {/* Audio Voice Note Player */}
+                  {meta?.fileUrl && (meta?.fileType?.startsWith('audio/') || meta?.fileType === 'audio/webm') && (
                     <AudioMemoPlayer fileUrl={getMediaUrl(meta.fileUrl)} />
                   )}
 
@@ -1234,23 +1260,20 @@ export function ChatView({ onBack, onOpenInvite }) {
                   </div>
                 </div>
 
-                {/* Context Action Menu */}
-                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-0.5 shadow-lg transition-opacity shrink-0">
-                  <button onClick={() => setReplyTo(msg)} className="p-1 text-slate-400 hover:text-white" title="Reply">
-                    <Reply className="w-3 h-3" />
-                  </button>
-                  <button onClick={() => handleToggleStar(msg)} className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`} title="Star">
-                    <Star className="w-3 h-3" />
-                  </button>
-                  <button onClick={() => handleTogglePin(msg)} className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`} title="Pin">
-                    <Pin className="w-3 h-3" />
-                  </button>
-                  {isMe && (
-                    <button onClick={() => setDeleteMsgConfirmId(msg.id)} className="p-1 text-slate-400 hover:text-red-400" title="Delete message">
-                      <Trash2 className="w-3 h-3" />
+                {/* Context Action Menu for Received Messages (appears on the right of received bubble) */}
+                {!isMe && (
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-0.5 shadow-lg transition-opacity shrink-0">
+                    <button onClick={() => setReplyTo(msg)} className="p-1 text-slate-400 hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
                     </button>
-                  )}
-                </div>
+                    <button onClick={() => handleToggleStar(msg)} className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`} title="Star">
+                      <Star className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => handleTogglePin(msg)} className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`} title="Pin">
+                      <Pin className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             </React.Fragment>
           );

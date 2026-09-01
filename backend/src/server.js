@@ -66,8 +66,20 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// Static uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Process-level crash guards to ensure 100% backend uptime on Render
+process.on('uncaughtException', (err) => {
+  console.error('[Server UncaughtException]:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server UnhandledRejection]:', reason);
+});
+
+// Guaranteed static uploads directory
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -136,8 +148,9 @@ app.use((req, res) => {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`
   ╔════════════════════════════════════════════════════════════════════╗
   ║                      DUOCORE BACKEND SERVER                        ║
   ║         "Learn. Practice. Challenge. Together."                    ║
@@ -146,7 +159,8 @@ server.listen(PORT, '0.0.0.0', () => {
   ║  ⚡ Socket.IO listening on: ws://localhost:${PORT}                   ║
   ║  🛡️ Health Check:          http://localhost:${PORT}/api/health        ║
   ╚════════════════════════════════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
 
 module.exports = { app, server };

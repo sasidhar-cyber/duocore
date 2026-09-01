@@ -143,8 +143,8 @@ router.post('/:roomId/messages', requireAuth, (req, res) => {
   }
 
   db.prepare(`
-    INSERT INTO messages (id, room_id, sender_id, text, type, channel_type, metadata, reply_to_id, is_read, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    INSERT INTO messages (id, room_id, sender_id, text, type, channel_type, metadata, reply_to_id, is_read, is_deleted, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
   `).run(
     msgId,
     roomId,

@@ -49,13 +49,17 @@ async function restoreFromCloud(sqliteDb) {
           if (res.rows && res.rows.length > 0) {
             const sample = res.rows[0];
             const cols = Object.keys(sample);
-            const placeholders = cols.map(() => '?').join(', ');
-            const insertSql = `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`;
+            const sqliteCols = sqliteDb.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+            const validCols = cols.filter(c => sqliteCols.includes(c));
+            if (validCols.length === 0) continue;
+
+            const placeholders = validCols.map(() => '?').join(', ');
+            const insertSql = `INSERT OR REPLACE INTO ${table} (${validCols.join(', ')}) VALUES (${placeholders})`;
             const stmt = sqliteDb.prepare(insertSql);
 
             const tx = sqliteDb.transaction((rows) => {
               for (const r of rows) {
-                const vals = cols.map(c => {
+                const vals = validCols.map(c => {
                   const val = r[c];
                   if (typeof val === 'object' && val !== null) {
                     return JSON.stringify(val);
