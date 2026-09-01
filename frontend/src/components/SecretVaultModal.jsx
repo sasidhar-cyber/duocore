@@ -23,7 +23,7 @@ export function SecretVaultModal() {
   const [pinError, setPinError] = useState('');
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
-  const savedPin = localStorage.getItem('duocore_vault_pin') || '1234';
+  const savedPin = localStorage.getItem('soundwave_vault_pin') || localStorage.getItem('duocore_vault_pin') || '1234';
 
   // Listen to Escape key as Panic Switch
   useEffect(() => {

@@ -166,6 +166,7 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
       return;
     }
     localStorage.setItem('duocore_vault_pin', newVaultPin);
+    localStorage.setItem('soundwave_vault_pin', newVaultPin);
     setVaultPin(newVaultPin);
     setNewVaultPin('');
     setMessage('Stealth Vault Passkey PIN updated successfully!');
