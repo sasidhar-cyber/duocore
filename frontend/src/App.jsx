@@ -114,7 +114,7 @@ function AppContent() {
   // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT
   if (activeTab === 'chat') {
     return (
-      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-1 sm:p-4 select-none relative overflow-hidden">
+      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-0 sm:p-4 select-none relative overflow-hidden">
         <NetworkStatusBanner />
 
         <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">

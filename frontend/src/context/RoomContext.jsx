@@ -268,10 +268,22 @@ export function RoomProvider({ children }) {
       setPrivateMessages(updateList);
     };
 
-    const handleRoomCleared = ({ roomId }) => {
+    const handleMessageDeleted = ({ messageId, channel = 'normal' }) => {
+      const filterDeleted = (list) => list.filter((m) => m.id !== messageId);
+      if (channel.startsWith('dm:') || channel.startsWith('private:')) {
+        setPrivateMessages(filterDeleted);
+      } else {
+        setNormalMessages(filterDeleted);
+      }
+    };
+
+    const handleRoomCleared = ({ roomId, channel = 'normal' }) => {
       if (roomId === currentRoomIdRef.current) {
-        setNormalMessages([]);
-        setPrivateMessages([]);
+        if (channel.startsWith('dm:') || channel.startsWith('private:')) {
+          setPrivateMessages([]);
+        } else {
+          setNormalMessages([]);
+        }
       }
     };
 
@@ -288,6 +300,7 @@ export function RoomProvider({ children }) {
 
     s.on('connect', handleSocketConnect);
     s.on('chat:new_message', handleNewMessage);
+    s.on('chat:message_deleted', handleMessageDeleted);
     s.on('chat:messages_read', handleMessagesRead);
     s.on('chat:partner_typing', handlePartnerTyping);
     s.on('presence:partner_status', handlePartnerStatus);
@@ -305,6 +318,7 @@ export function RoomProvider({ children }) {
     return () => {
       s.off('connect', handleSocketConnect);
       s.off('chat:new_message', handleNewMessage);
+      s.off('chat:message_deleted', handleMessageDeleted);
       s.off('chat:messages_read', handleMessagesRead);
       s.off('chat:partner_typing', handlePartnerTyping);
       s.off('presence:partner_status', handlePartnerStatus);
@@ -397,6 +411,49 @@ export function RoomProvider({ children }) {
     }
   };
 
+  const clearChatMessages = async (channel = 'normal') => {
+    if (!roomData?.id) return;
+    try {
+      await api.clearRoomMessages(roomData.id, channel);
+      if (channel.startsWith('dm:') || channel.startsWith('private:')) {
+        setPrivateMessages([]);
+      } else {
+        setNormalMessages([]);
+      }
+    } catch (err) {
+      console.error('[RoomContext] Clear chat error:', err);
+      throw err;
+    }
+  };
+
+  const panicClearMessages = async (channel = 'normal') => {
+    if (!roomData?.id) return;
+    try {
+      await api.panicClearRoomMessages(roomData.id);
+      setNormalMessages([]);
+      setPrivateMessages([]);
+    } catch (err) {
+      console.error('[RoomContext] Panic clear error:', err);
+      throw err;
+    }
+  };
+
+  const deleteSingleMessage = async (messageId, channel = 'normal') => {
+    if (!roomData?.id) return;
+    try {
+      await api.deleteMessage(roomData.id, messageId);
+      const filterMsg = (list) => list.filter((m) => m.id !== messageId);
+      if (channel.startsWith('dm:') || channel.startsWith('private:')) {
+        setPrivateMessages(filterMsg);
+      } else {
+        setNormalMessages(filterMsg);
+      }
+    } catch (err) {
+      console.error('[RoomContext] Delete message error:', err);
+      throw err;
+    }
+  };
+
   return (
     <RoomContext.Provider
       value={{
@@ -420,6 +477,9 @@ export function RoomProvider({ children }) {
         removePartner,
         sendMessage,
         sendTyping,
+        clearChatMessages,
+        panicClearMessages,
+        deleteSingleMessage,
         setActiveChannel
       }}
     >

@@ -45,7 +45,7 @@ import {
   Link as LinkIcon,
   Loader2,
   ChevronDown,
-  MessageSquare
+  AlertTriangle
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 import { showBrowserNotification } from '../utils/notificationService';
@@ -86,7 +86,7 @@ function formatMessageDate(dateStr) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
 }
 
-// WhatsApp Style Voice Note Player
+// Voice Note Player
 function AudioMemoPlayer({ fileUrl }) {
   const resolvedUrl = getMediaUrl(fileUrl);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -156,7 +156,9 @@ export function ChatView({ onBack, onOpenInvite }) {
     partner,
     refreshPartnerState,
     removePartner,
-    panicClearMessages
+    clearChatMessages,
+    panicClearMessages,
+    deleteSingleMessage
   } = useRoom();
 
   const { playTrack, openNowPlaying, currentTrack, isPlaying, togglePlay } = useMusic();
@@ -175,8 +177,30 @@ export function ChatView({ onBack, onOpenInvite }) {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [previewImageModal, setPreviewImageModal] = useState(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [partnerInfoOpen, setPartnerInfoOpen] = useState(false);
+  const [clearChatConfirmOpen, setClearChatConfirmOpen] = useState(false);
+  const [deleteMsgConfirmId, setDeleteMsgConfirmId] = useState(null);
 
-  // Invite & Pairing Form State
+  // Dynamic visual viewport height tracker for Android & iOS soft keyboards
+  const [viewportHeight, setViewportHeight] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const handleResize = () => {
+      setViewportHeight(window.visualViewport.height);
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+
+    return () => {
+      window.visualViewport.removeEventListener('resize', handleResize);
+      window.visualViewport.removeEventListener('scroll', handleResize);
+    };
+  }, []);
+
+  // Lobby Mode
   const [lobbyMode, setLobbyMode] = useState('select'); // 'select' | 'create' | 'join'
   const [createLoading, setCreateLoading] = useState(false);
   const [inputCode, setInputCode] = useState('');
@@ -222,7 +246,6 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   // Location Modal Confirmation
   const [locationConfirmOpen, setLocationConfirmOpen] = useState(false);
-  const [partnerInfoOpen, setPartnerInfoOpen] = useState(false);
 
   // Calls
   const [videoCallOpen, setVideoCallOpen] = useState(false);
@@ -308,7 +331,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     }
   }, [roomData?.id]);
 
-  // Handle Connect to Partner Code
+  // Connect to Partner Code
   const handleJoinByCode = async (e) => {
     e?.preventDefault();
     if (!inputCode.trim()) return;
@@ -336,7 +359,6 @@ export function ChatView({ onBack, onOpenInvite }) {
     }
   };
 
-  // Copy Code & WhatsApp Link Helpers
   const handleCopyCode = () => {
     if (!roomData?.code) return;
     navigator.clipboard.writeText(roomData.code);
@@ -359,7 +381,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  // Send Text Message
+  // Send Message
   const handleSendMessage = (e) => {
     e?.preventDefault();
     if (!messageText.trim()) return;
@@ -376,7 +398,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     try { playSound('send'); } catch {}
   };
 
-  // Send File Upload with guaranteed progress & error handling
+  // Send File Upload
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -477,7 +499,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     }
   };
 
-  // Star / Pin / Delete
+  // Star / Pin
   const handleToggleStar = async (msg) => {
     if (!roomData?.id) return;
     try {
@@ -497,16 +519,29 @@ export function ChatView({ onBack, onOpenInvite }) {
     } catch {}
   };
 
-  const handleDeleteMessage = async (msgId) => {
-    if (window.confirm('Delete this message for everyone?')) {
-      try {
-        await api.deleteMessage(roomData?.id, msgId);
-        refreshPartnerState();
-      } catch {}
+  // Single Message Delete
+  const confirmDeleteSingleMessage = async () => {
+    if (!deleteMsgConfirmId) return;
+    try {
+      await deleteSingleMessage(deleteMsgConfirmId, 'normal');
+      setDeleteMsgConfirmId(null);
+    } catch (err) {
+      alert('Failed to delete message: ' + (err.message || 'Error'));
     }
   };
 
-  // Open Media Gallery
+  // Clear Entire Chat
+  const confirmExecuteClearChat = async () => {
+    setClearChatConfirmOpen(false);
+    try {
+      await clearChatMessages('normal');
+      try { playSound('quiz_correct'); } catch {}
+    } catch (err) {
+      alert('Failed to clear chat: ' + (err.message || 'Error'));
+    }
+  };
+
+  // Open Media Gallery & Starred
   const handleOpenMediaGallery = async () => {
     if (!roomData?.id) return;
     try {
@@ -516,7 +551,6 @@ export function ChatView({ onBack, onOpenInvite }) {
     } catch {}
   };
 
-  // Open Starred
   const handleOpenStarred = async () => {
     if (!roomData?.id) return;
     try {
@@ -526,7 +560,6 @@ export function ChatView({ onBack, onOpenInvite }) {
     } catch {}
   };
 
-  // Unpair
   const handleUnpair = async () => {
     if (window.confirm('Are you sure you want to disconnect from this 1v1 room?')) {
       try {
@@ -535,9 +568,8 @@ export function ChatView({ onBack, onOpenInvite }) {
     }
   };
 
-  // Panic Clear
   const handlePanicClear = async () => {
-    if (window.confirm('🚨 EMERGENCY CLEAR: Erase all messages from server & partner screen immediately?')) {
+    if (window.confirm('🚨 EMERGENCY STEALTH CLEAR: Erase all messages from server database & partner screen immediately?')) {
       try {
         await panicClearMessages('normal');
         try { playSound('quiz_wrong'); } catch {}
@@ -545,33 +577,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     }
   };
 
-  // Share Live Location
-  const executeSendLocation = () => {
-    setLocationConfirmOpen(false);
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const mapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
-        sendMessage({
-          text: `📍 Shared Live Location: ${mapsUrl}`,
-          channel: 'normal',
-          metadata: { latitude, longitude, mapsUrl }
-        });
-        try { playSound('send'); } catch {}
-      },
-      (err) => {
-        alert('Could not retrieve GPS location: ' + err.message);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  // Call triggers with signaling
+  // Calls
   const startVideoCall = () => {
     const s = getSocket();
     if (s && roomData?.id) {
@@ -596,7 +602,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     setAudioCallOpen(true);
   };
 
-  // In-Chat Search Navigation
+  // Search Navigation
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase().trim();
@@ -640,14 +646,17 @@ export function ChatView({ onBack, onOpenInvite }) {
   const partnerAvatar = otherPartner?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(otherPartner?.username || 'partner')}`;
 
   return (
-    <div className={`h-full w-full flex flex-col ${currentThemeObj.bg} rounded-3xl border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}>
-      {/* 1. 1v1 PRIVATE CHAT HEADER */}
-      <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
+    <div
+      style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
+      className={`h-[100dvh] w-full flex flex-col ${currentThemeObj.bg} rounded-none sm:rounded-3xl border-0 sm:border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}
+    >
+      {/* 1. HEADER */}
+      <div className="px-3 py-2.5 sm:p-4 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-20">
         <div
           onClick={() => {
             if (hasPartner) setPartnerInfoOpen(true);
           }}
-          className={`flex items-center gap-3 min-w-0 ${hasPartner ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+          className={`flex items-center gap-2.5 sm:gap-3 min-w-0 ${hasPartner ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
           title={hasPartner ? 'View Partner Profile & Room Options' : 'Duo Chat Lobby'}
         >
           {onBack && (
@@ -656,7 +665,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                 e.stopPropagation();
                 onBack();
               }}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all mr-1 shrink-0"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all mr-0.5 shrink-0"
               title="Back to Music Player"
             >
               <ArrowLeft className="w-4 h-4 text-emerald-400" />
@@ -669,31 +678,31 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <Avatar
                   src={otherPartner?.avatar_url}
                   name={otherPartner?.username || 'Partner'}
-                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl ring-2 ring-emerald-500/40"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl ring-2 ring-emerald-500/40"
                 />
                 <div
-                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-950 ${
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border-2 border-slate-950 ${
                     otherPartner?.is_online ? 'bg-emerald-400' : 'bg-slate-600'
                   }`}
                 />
               </>
             ) : (
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-lg">
                 🎮
               </div>
             )}
           </div>
 
           <div className="min-w-0">
-            <h4 className="text-sm sm:text-base font-black text-white truncate flex items-center gap-2">
+            <h4 className="text-xs sm:text-sm font-black text-white truncate flex items-center gap-1.5">
               <span>{hasPartner ? (otherPartner?.username || 'Duo Partner') : '1v1 Duo Chat Lobby'}</span>
               {roomData?.code && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
                   {roomData.code}
                 </span>
               )}
             </h4>
-            <p className="text-[11px] font-mono truncate">
+            <p className="text-[10px] font-mono truncate">
               {hasPartner ? (
                 partnerTyping?.normal ? (
                   <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
@@ -703,23 +712,19 @@ export function ChatView({ onBack, onOpenInvite }) {
                   <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
                 )
               ) : (
-                <span className="text-yellow-400 font-bold">⚠️ Unpaired • Enter Room Code to Connect</span>
+                <span className="text-yellow-400 font-bold">⚠️ Unpaired • Enter Room Code</span>
               )}
             </p>
           </div>
         </div>
 
-        {/* Action Controls */}
+        {/* Header Action Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {currentTrack && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-emerald-500/30 text-emerald-400 max-w-[130px] sm:max-w-[190px]">
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-emerald-500/30 text-emerald-400 max-w-[160px]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
-              <span className="text-[10px] sm:text-[11px] font-bold truncate text-slate-200">{currentTrack.title}</span>
-              <button
-                onClick={togglePlay}
-                className="p-0.5 rounded-lg text-emerald-300 hover:text-emerald-200 shrink-0 text-xs"
-                title={isPlaying ? 'Pause' : 'Play'}
-              >
+              <span className="text-[10px] font-bold truncate text-slate-200">{currentTrack.title}</span>
+              <button onClick={togglePlay} className="p-0.5 rounded-lg text-emerald-300 text-xs">
                 {isPlaying ? '⏸' : '▶'}
               </button>
             </div>
@@ -727,8 +732,8 @@ export function ChatView({ onBack, onOpenInvite }) {
 
           <button
             onClick={() => setSearchOpen(!searchOpen)}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-transform active:scale-95"
-            title="Search inside Chat"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-transform active:scale-95"
+            title="Search chat"
           >
             <Search className="w-4 h-4" />
           </button>
@@ -736,8 +741,8 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             onClick={startAudioCall}
             disabled={!hasPartner}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
-            title="Start Audio Call"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
+            title="Audio Call"
           >
             <Phone className="w-4 h-4" />
           </button>
@@ -745,8 +750,8 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             onClick={startVideoCall}
             disabled={!hasPartner}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
-            title="Start HD Video Call"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
+            title="HD Video Call"
           >
             <Video className="w-4 h-4" />
           </button>
@@ -754,13 +759,21 @@ export function ChatView({ onBack, onOpenInvite }) {
           <div className="relative">
             <button
               onClick={() => setMenuOpen(!menuOpen)}
-              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
             >
               <MoreVertical className="w-4 h-4" />
             </button>
 
             {menuOpen && (
               <div className="absolute right-0 mt-2 w-52 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 animate-in fade-in space-y-1">
+                <button
+                  onClick={() => { setPartnerInfoOpen(true); setMenuOpen(false); }}
+                  className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <span>Partner Profile & Room</span>
+                </button>
+
                 <button
                   onClick={() => { handleOpenMediaGallery(); setMenuOpen(false); }}
                   className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
@@ -787,11 +800,21 @@ export function ChatView({ onBack, onOpenInvite }) {
 
                 {hasPartner && (
                   <button
+                    onClick={() => { setClearChatConfirmOpen(true); setMenuOpen(false); }}
+                    className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4 text-slate-400" />
+                    <span>Clear Chat</span>
+                  </button>
+                )}
+
+                {hasPartner && (
+                  <button
                     onClick={() => { handlePanicClear(); setMenuOpen(false); }}
                     className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-yellow-400 hover:bg-yellow-500/20 flex items-center gap-2"
                   >
                     <span>🚨</span>
-                    <span>Emergency Clear Chat</span>
+                    <span>Emergency Stealth Wipe</span>
                   </button>
                 )}
 
@@ -812,7 +835,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* In-Chat Search Bar */}
       {searchOpen && (
-        <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center gap-2 text-xs shrink-0 animate-in slide-in-from-top duration-150">
+        <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center gap-2 text-xs shrink-0 animate-in slide-in-from-top duration-150 z-10">
           <Search className="w-4 h-4 text-emerald-400 shrink-0" />
           <input
             type="text"
@@ -839,7 +862,6 @@ export function ChatView({ onBack, onOpenInvite }) {
             onClick={handlePrevSearch}
             disabled={searchResults.length === 0}
             className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30"
-            title="Previous match"
           >
             ▲
           </button>
@@ -847,7 +869,6 @@ export function ChatView({ onBack, onOpenInvite }) {
             onClick={handleNextSearch}
             disabled={searchResults.length === 0}
             className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30"
-            title="Next match"
           >
             ▼
           </button>
@@ -863,9 +884,9 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* Pinned Messages Top Banner */}
+      {/* Pinned Messages Banner */}
       {pinnedList.length > 0 && (
-        <div className="px-4 py-2 bg-emerald-950/80 border-b border-emerald-500/30 flex items-center justify-between gap-2 text-xs">
+        <div className="px-4 py-1.5 bg-emerald-950/80 border-b border-emerald-500/30 flex items-center justify-between gap-2 text-xs shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Pin className="w-3.5 h-3.5 text-emerald-400 shrink-0 fill-current" />
             <span className="text-emerald-300 font-bold text-[10px] shrink-0">PINNED:</span>
@@ -874,40 +895,14 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* 2. CHAT STREAM (Natural top-down conversation) */}
+      {/* 2. CHAT STREAM (Natural top-down scrollable flex-1 message stream) */}
       <div
         ref={chatScrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 flex flex-col justify-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] relative"
+        className="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-4 space-y-1.5 flex flex-col justify-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] relative"
       >
-        {hasPartner ? (
-          /* PAIRED ACTIVE BANNER */
-          <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2 max-w-lg w-full mx-auto mb-1 animate-in fade-in shrink-0">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold shrink-0">
-                🔒
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-wider block">
-                  1v1 PRIVATE DUO ROOM (ACTIVE ✅)
-                </span>
-                <p className="text-xs text-slate-200 font-bold truncate">
-                  Connected with <span className="text-emerald-300 font-extrabold">{otherPartner?.username}</span> (Room: {roomData?.code})
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={handleUnpair}
-              className="px-2.5 py-1.5 rounded-xl bg-red-950/60 border border-red-500/30 text-red-300 hover:bg-red-900/60 text-[10px] font-bold shrink-0 transition-all active:scale-95"
-              title="Disconnect / Split Room"
-            >
-              Unpair
-            </button>
-          </div>
-        ) : (
-          /* 2-PLAYER ROOM LOBBY (CREATE OR JOIN) */
-          <div className="p-4 sm:p-6 rounded-3xl bg-slate-900/95 border-2 border-emerald-500/40 shadow-2xl space-y-5 max-w-lg w-full mx-auto mb-2 animate-in fade-in shrink-0">
+        {!hasPartner && (
+          <div className="p-4 sm:p-6 rounded-3xl bg-slate-900/95 border-2 border-emerald-500/40 shadow-2xl space-y-4 max-w-lg w-full mx-auto my-auto animate-in fade-in shrink-0">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-emerald-400 font-black text-xs sm:text-sm tracking-wider uppercase">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -919,23 +914,23 @@ export function ChatView({ onBack, onOpenInvite }) {
             </div>
 
             {lobbyMode === 'select' && (
-              <div className="space-y-4 py-2">
+              <div className="space-y-3 py-1">
                 <p className="text-xs text-slate-300 text-center font-medium">
-                  Connect with your friend to unlock private real-time chat, HD calls, and music sharing!
+                  Connect with your partner to unlock private 1v1 chat, HD calls, and shared music!
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                   <button
                     onClick={handleCreateRoom}
                     disabled={createLoading}
-                    className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border-2 border-emerald-500/50 hover:border-emerald-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-3"
+                    className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border-2 border-emerald-500/50 hover:border-emerald-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-2"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-base group-hover:scale-110 transition-transform">
                       ➕
                     </div>
                     <div>
-                      <h3 className="text-sm font-black text-white group-hover:text-emerald-300">CREATE ROOM</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Host a new room & get a code for your friend</p>
+                      <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-300">CREATE ROOM</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Host a new room & get a code</p>
                     </div>
                     <span className="text-[10px] font-mono text-emerald-400 font-bold">
                       {createLoading ? 'Generating Code...' : 'HOST NOW ⚡'}
@@ -944,14 +939,14 @@ export function ChatView({ onBack, onOpenInvite }) {
 
                   <button
                     onClick={() => setLobbyMode('join')}
-                    className="p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border-2 border-cyan-500/50 hover:border-cyan-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-3"
+                    className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border-2 border-cyan-500/50 hover:border-cyan-400 text-left transition-all active:scale-95 group shadow-lg flex flex-col justify-between space-y-2"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-cyan-500 text-slate-950 flex items-center justify-center font-black text-lg group-hover:scale-110 transition-transform">
+                    <div className="w-9 h-9 rounded-xl bg-cyan-500 text-slate-950 flex items-center justify-center font-black text-base group-hover:scale-110 transition-transform">
                       🚀
                     </div>
                     <div>
-                      <h3 className="text-sm font-black text-white group-hover:text-cyan-300">JOIN ROOM</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Enter the code shared by your friend</p>
+                      <h3 className="text-xs sm:text-sm font-black text-white group-hover:text-cyan-300">JOIN ROOM</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Enter code shared by friend</p>
                     </div>
                     <span className="text-[10px] font-mono text-cyan-400 font-bold">
                       ENTER CODE 🔑
@@ -962,24 +957,21 @@ export function ChatView({ onBack, onOpenInvite }) {
             )}
 
             {lobbyMode === 'create' && (
-              <div className="space-y-4 animate-in fade-in">
+              <div className="space-y-3 animate-in fade-in">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                    Share your Room Code
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                    Your Room Code
                   </span>
                   <button
                     onClick={() => setLobbyMode('select')}
                     className="text-[10px] font-mono text-slate-400 hover:text-white underline"
                   >
-                    ↩ Change Mode
+                    ↩ Back
                   </button>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/40 text-center space-y-2">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
-                    YOUR UNIQUE DUO ROOM CODE
-                  </span>
-                  <div className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-emerald-400 py-1">
+                <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-emerald-500/40 text-center space-y-1">
+                  <div className="text-3xl font-black font-mono tracking-widest text-emerald-400 py-1">
                     {roomData?.code || '---'}
                   </div>
                 </div>
@@ -987,40 +979,27 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleCopyCode}
-                    className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    className="py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5"
                   >
                     <Copy className="w-3.5 h-3.5" />
                     <span>{copiedCode ? 'Copied! ✅' : 'Copy Code'}</span>
                   </button>
-
                   <button
-                    onClick={handleCopyLinkOnly}
-                    className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    onClick={handleCopyWhatsApp}
+                    className="py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5"
                   >
-                    <LinkIcon className="w-3.5 h-3.5" />
-                    <span>{copiedLink ? 'Copied! ✅' : 'Copy Link'}</span>
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
                   </button>
                 </div>
-
-                <button
-                  onClick={handleCopyWhatsApp}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 active:scale-95 transition-transform"
-                >
-                  <Share2 className="w-4 h-4" />
-                  <span>Share Code on WhatsApp 📲</span>
-                </button>
-
-                <p className="text-[11px] font-mono text-center text-yellow-300/90 animate-pulse pt-1">
-                  ⏳ Waiting for friend to enter code {roomData?.code}...
-                </p>
               </div>
             )}
 
             {lobbyMode === 'join' && (
-              <form onSubmit={handleJoinByCode} className="space-y-4 animate-in fade-in">
+              <form onSubmit={handleJoinByCode} className="space-y-3 animate-in fade-in">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                    Enter your friend's code
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                    Enter Room Code
                   </span>
                   <button
                     type="button"
@@ -1034,18 +1013,18 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Enter Code (e.g. 503) or Custom Word (e.g. sasi)"
+                    placeholder="e.g. 503 or DUO-123"
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-                    className="flex-1 glass-input rounded-2xl px-4 py-3 text-sm font-mono tracking-wider text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-500 border border-slate-700 focus:border-cyan-400"
+                    className="flex-1 glass-input rounded-2xl px-3.5 py-2.5 text-xs font-mono tracking-wider text-emerald-300 uppercase placeholder:normal-case placeholder:text-slate-500"
                     autoFocus
                   />
                   <button
                     type="submit"
                     disabled={joinLoading || !inputCode.trim()}
-                    className="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 transition-transform active:scale-95 shadow-lg shadow-cyan-500/30"
+                    className="px-4 py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-black text-xs shrink-0 active:scale-95 shadow-md"
                   >
-                    {joinLoading ? 'Connecting...' : 'CONNECT 🚀'}
+                    {joinLoading ? '...' : 'Connect'}
                   </button>
                 </div>
                 {joinError && <p className="text-xs text-red-400 font-bold px-1">{joinError}</p>}
@@ -1056,20 +1035,20 @@ export function ChatView({ onBack, onOpenInvite }) {
 
         {/* Empty State when Paired but No Messages Yet */}
         {hasPartner && normalMessages.length === 0 && (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto animate-in fade-in">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl shadow-inner">
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-3 my-auto animate-in fade-in">
+            <div className="w-14 h-14 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl shadow-inner">
               💬
             </div>
             <div className="space-y-1">
-              <h3 className="text-sm sm:text-base font-black text-white">Private Duo Room Ready</h3>
-              <p className="text-xs text-slate-400 max-w-xs">
-                Messages and media are end-to-end synchronized. Start chatting or share a track!
+              <h3 className="text-sm font-black text-white">Private Duo Room Ready</h3>
+              <p className="text-[11px] text-slate-400 max-w-xs">
+                Messages are synchronized in real-time. Start chatting or share a song!
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
               <button
                 onClick={() => sendMessage({ text: '👋 Hey there! Connected on DuoCore.' })}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
+                className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
               >
                 👋 Say Hi
               </button>
@@ -1081,7 +1060,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                     sendMessage({ text: '🎵 What music are you listening to?' });
                   }
                 }}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
+                className="px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
               >
                 🎵 Share Music
               </button>
@@ -1089,10 +1068,15 @@ export function ChatView({ onBack, onOpenInvite }) {
           </div>
         )}
 
-        {/* Message Stream with Date Separators */}
+        {/* Message Stream with Date Separators and WhatsApp-like Consecutive Grouping */}
         {normalMessages.map((msg, idx) => {
           const isMe = String(msg.sender_id) === String(user?.id);
           const showDateHeader = idx === 0 || formatMessageDate(normalMessages[idx - 1]?.created_at) !== formatMessageDate(msg.created_at);
+
+          const prevMsg = normalMessages[idx - 1];
+          const nextMsg = normalMessages[idx + 1];
+          const isFirstInGroup = !prevMsg || String(prevMsg.sender_id) !== String(msg.sender_id) || showDateHeader;
+          const isLastInGroup = !nextMsg || String(nextMsg.sender_id) !== String(msg.sender_id);
 
           let meta = {};
           if (msg.metadata) {
@@ -1107,7 +1091,7 @@ export function ChatView({ onBack, onOpenInvite }) {
               {/* Date Separator Pill */}
               {showDateHeader && msg.created_at && (
                 <div className="flex items-center justify-center my-2 shrink-0">
-                  <span className="px-3 py-0.5 rounded-full bg-slate-900/90 border border-slate-800 text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider shadow-sm">
+                  <span className="px-3 py-0.5 rounded-full bg-slate-900/90 border border-slate-800 text-[9px] font-mono text-slate-400 font-bold uppercase tracking-wider shadow-sm">
                     {formatMessageDate(msg.created_at)}
                   </span>
                 </div>
@@ -1115,21 +1099,26 @@ export function ChatView({ onBack, onOpenInvite }) {
 
               <div
                 id={`msg-${msg.id}`}
-                className={`flex items-end gap-2 group transition-all animate-in fade-in slide-in-from-bottom-1 duration-150 ${isMe ? 'justify-end' : 'justify-start'}`}
+                className={`flex items-end gap-1.5 group transition-all animate-in fade-in duration-100 ${isFirstInGroup ? 'mt-2.5' : 'mt-0.5'} ${isMe ? 'justify-end' : 'justify-start'}`}
               >
+                {/* Receiver Avatar (Only on last message of group) */}
                 {!isMe && (
-                  <img
-                    src={partnerAvatar}
-                    alt={msg.username}
-                    className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1 ring-1 ring-slate-700"
-                  />
+                  isLastInGroup ? (
+                    <img
+                      src={partnerAvatar}
+                      alt={msg.username}
+                      className="w-6 h-6 rounded-xl object-cover shrink-0 mb-0.5 ring-1 ring-slate-700"
+                    />
+                  ) : (
+                    <div className="w-6 shrink-0" />
+                  )
                 )}
 
                 <div
-                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
+                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-2.5 sm:p-3 space-y-1 shadow-md relative ${
                     isMe
-                      ? `${currentThemeObj.bubbleMe} text-white rounded-br-none ml-auto`
-                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none mr-auto`
+                      ? `${currentThemeObj.bubbleMe} text-white ${isLastInGroup ? 'rounded-br-xs' : 'rounded-br-2xl'} ml-auto`
+                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 ${isLastInGroup ? 'rounded-bl-xs' : 'rounded-bl-2xl'} mr-auto`
                   }`}
                 >
                   {/* Reply Quote Preview */}
@@ -1146,12 +1135,12 @@ export function ChatView({ onBack, onOpenInvite }) {
                           }
                         }
                       }}
-                      className="p-2 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1.5 cursor-pointer hover:bg-black/40 transition-colors"
+                      className="p-1.5 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1 cursor-pointer hover:bg-black/40 transition-colors"
                     >
-                      <span className="font-bold text-[10px] text-emerald-300 block">
+                      <span className="font-bold text-[9px] text-emerald-300 block">
                         {msg.reply_to_username || msg.replyTo?.username || 'Partner'}
                       </span>
-                      <p className="truncate text-[11px] text-slate-300">
+                      <p className="truncate text-[10px] text-slate-300">
                         {msg.reply_to_text || msg.replyTo?.text}
                       </p>
                     </div>
@@ -1159,19 +1148,19 @@ export function ChatView({ onBack, onOpenInvite }) {
 
                   {/* Shared Music Card */}
                   {meta?.song && (
-                    <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
-                      <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-black/40 border border-white/20 space-y-2">
+                      <div className="flex items-center gap-2.5">
                         <img
                           src={meta.song.thumbnail}
                           alt={meta.song.title}
-                          className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
+                          className="w-12 h-12 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
                         />
                         <div className="min-w-0">
-                          <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
-                            DUOCORE MUSIC TRACK
+                          <span className="text-[8px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                            DUOCORE TRACK
                           </span>
-                          <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
-                          <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
+                          <h4 className="text-xs font-black text-white truncate">{meta.song.title}</h4>
+                          <p className="text-[10px] text-slate-300 truncate">{meta.song.artist}</p>
                         </div>
                       </div>
 
@@ -1180,9 +1169,9 @@ export function ChatView({ onBack, onOpenInvite }) {
                           playTrack(meta.song);
                           openNowPlaying();
                         }}
-                        className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
+                        className="w-full py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
                       >
-                        <Play className="w-4 h-4 fill-current" />
+                        <Play className="w-3.5 h-3.5 fill-current" />
                         <span>Play on DuoCore</span>
                       </button>
                     </div>
@@ -1190,12 +1179,12 @@ export function ChatView({ onBack, onOpenInvite }) {
 
                   {/* Photo / Image */}
                   {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
-                    <div className="rounded-2xl overflow-hidden max-h-80 border border-white/10 relative group/img mt-1">
+                    <div className="rounded-xl overflow-hidden max-h-72 border border-white/10 relative group/img mt-0.5">
                       <img
                         src={getMediaUrl(meta.fileUrl)}
                         alt="Photo"
                         loading="lazy"
-                        className="w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                        className="w-full h-auto max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity"
                         onClick={() => setPreviewImageModal(getMediaUrl(meta.fileUrl))}
                       />
                     </div>
@@ -1206,16 +1195,16 @@ export function ChatView({ onBack, onOpenInvite }) {
                     <AudioMemoPlayer fileUrl={getMediaUrl(meta.fileUrl)} />
                   )}
 
-                  {/* Generic File Download */}
+                  {/* File Download */}
                   {meta?.fileUrl && !meta?.fileType?.startsWith('image/') && !meta?.fileType?.startsWith('audio/') && (
                     <a
                       href={getMediaUrl(meta.fileUrl)}
                       target="_blank"
                       rel="noreferrer"
-                      className="p-2.5 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-1"
+                      className="p-2 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-0.5"
                     >
-                      <span className="truncate font-bold">{meta.fileName || '📎 Download Attachment'}</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-2" />
+                      <span className="truncate font-bold text-[11px]">{meta.fileName || '📎 Download File'}</span>
+                      <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0 ml-2" />
                     </a>
                   )}
 
@@ -1229,8 +1218,8 @@ export function ChatView({ onBack, onOpenInvite }) {
                           rel="noopener noreferrer"
                           className="underline text-cyan-300 font-bold flex items-center gap-1"
                         >
-                          <MapPin className="w-4 h-4" />
-                          <span>View Live Google Maps Location</span>
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>View Google Maps Pin</span>
                         </a>
                       ) : (
                         msg.text
@@ -1238,9 +1227,9 @@ export function ChatView({ onBack, onOpenInvite }) {
                     </p>
                   )}
 
-                  {/* Timestamp & Real Ticks */}
-                  <div className="flex items-center justify-end gap-1.5 text-[10px] opacity-80 font-mono pt-0.5">
-                    {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
+                  {/* Timestamp & Real Ticks inside bubble */}
+                  <div className="flex items-center justify-end gap-1 text-[9px] opacity-75 font-mono pt-0.5">
+                    {msg.is_starred ? <Star className="w-2.5 h-2.5 text-yellow-300 fill-current" /> : null}
                     <span>
                       {msg.created_at
                         ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1260,38 +1249,19 @@ export function ChatView({ onBack, onOpenInvite }) {
                   </div>
                 </div>
 
-                {/* Context Actions (Reply, Star, Pin, Delete) */}
-                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
-                  <button
-                    onClick={() => setReplyTo(msg)}
-                    className="p-1 text-slate-400 hover:text-white"
-                    title="Reply"
-                  >
+                {/* Context Action Menu */}
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-0.5 shadow-lg transition-opacity shrink-0">
+                  <button onClick={() => setReplyTo(msg)} className="p-1 text-slate-400 hover:text-white" title="Reply">
                     <Reply className="w-3 h-3" />
                   </button>
-
-                  <button
-                    onClick={() => handleToggleStar(msg)}
-                    className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
-                    title="Star message"
-                  >
+                  <button onClick={() => handleToggleStar(msg)} className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`} title="Star">
                     <Star className="w-3 h-3" />
                   </button>
-
-                  <button
-                    onClick={() => handleTogglePin(msg)}
-                    className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
-                    title="Pin message"
-                  >
+                  <button onClick={() => handleTogglePin(msg)} className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`} title="Pin">
                     <Pin className="w-3 h-3" />
                   </button>
-
                   {isMe && (
-                    <button
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1 text-slate-400 hover:text-red-400"
-                      title="Delete message"
-                    >
+                    <button onClick={() => setDeleteMsgConfirmId(msg.id)} className="p-1 text-slate-400 hover:text-red-400" title="Delete message">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   )}
@@ -1307,8 +1277,8 @@ export function ChatView({ onBack, onOpenInvite }) {
       {showScrollBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute right-4 bottom-20 z-40 p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all animate-in fade-in zoom-in-95 active:scale-90"
-          title="Scroll to latest messages"
+          className="absolute right-3.5 bottom-16 z-30 p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all animate-in fade-in zoom-in-95 active:scale-90"
+          title="Scroll to bottom"
         >
           <ChevronDown className="w-4 h-4 stroke-[3]" />
         </button>
@@ -1316,31 +1286,31 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* Uploading Progress Toast */}
       {uploadingMedia && (
-        <div className="px-4 py-2 bg-slate-900 border-t border-emerald-500/30 flex items-center justify-center gap-2 text-xs font-bold text-emerald-400 animate-pulse shrink-0">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Uploading attachment securely...</span>
+        <div className="px-4 py-1.5 bg-slate-900 border-t border-emerald-500/30 flex items-center justify-center gap-2 text-xs font-bold text-emerald-400 animate-pulse shrink-0">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>Uploading attachment...</span>
         </div>
       )}
 
       {/* Reply Preview Bar */}
       {replyTo && (
-        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0 animate-in slide-in-from-bottom-2">
+        <div className="px-3 py-1.5 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0 animate-in slide-in-from-bottom-2 z-10">
           <div className="flex items-center gap-2 min-w-0">
-            <CornerDownRight className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CornerDownRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <div className="min-w-0">
-              <span className="font-bold text-emerald-400 text-[10px]">{replyTo.username || 'Partner'}</span>
-              <p className="text-slate-300 truncate text-[11px]">{replyTo.text}</p>
+              <span className="font-bold text-emerald-400 text-[9px]">{replyTo.username || 'Partner'}</span>
+              <p className="text-slate-300 truncate text-[10px]">{replyTo.text}</p>
             </div>
           </div>
           <button onClick={() => setReplyTo(null)} className="p-1 text-slate-400 hover:text-white">
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* 3. BOTTOM COMPOSER */}
+      {/* 3. CLEAN BOTTOM COMPOSER (Organized single-row mobile layout) */}
       {hasPartner && (
-        <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="p-2 sm:p-2.5 bg-slate-900/95 border-t border-slate-800 flex items-center gap-1.5 sm:gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <input
             type="file"
             ref={fileInputRef}
@@ -1350,77 +1320,65 @@ export function ChatView({ onBack, onOpenInvite }) {
           />
 
           <button
+            type="button"
             onClick={() => setCameraModalOpen(true)}
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-            title="Take Photo with Camera"
+            className="p-2 sm:p-2.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-transform active:scale-95 shrink-0"
+            title="Take photo"
           >
-            <Camera className="w-4 h-4" />
+            <Camera className="w-5 h-5" />
           </button>
 
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0"
-            title="Attach Photo / Document"
+            className="p-2 sm:p-2.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-transform active:scale-95 shrink-0"
+            title="Attach file"
           >
-            <Paperclip className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setLocationConfirmOpen(true)}
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 shrink-0 hidden sm:block"
-            title="Share Live GPS Location"
-          >
-            <MapPin className="w-4 h-4" />
+            <Paperclip className="w-5 h-5" />
           </button>
 
           {isRecording ? (
-            <div className="flex-1 flex items-center justify-between bg-red-950/60 border border-red-500/40 rounded-2xl px-4 py-2 animate-pulse">
-              <div className="flex items-center gap-2 text-red-400 font-mono text-xs font-bold">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                <span>Recording Voice Note: {recordingSeconds}s</span>
+            <div className="flex-1 flex items-center justify-between bg-red-950/60 border border-red-500/40 rounded-2xl px-3.5 py-1.5 animate-pulse min-w-0">
+              <div className="flex items-center gap-2 text-red-400 font-mono text-xs font-bold truncate">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                <span>Recording: {recordingSeconds}s</span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={cancelRecording}
-                  className="px-2.5 py-1 rounded-lg bg-slate-900 text-slate-400 hover:text-white text-xs font-bold"
-                >
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={cancelRecording} className="px-2 py-1 rounded-lg bg-slate-900 text-slate-400 text-xs font-bold">
                   Cancel
                 </button>
-                <button
-                  onClick={stopRecording}
-                  className="px-3 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black"
-                >
+                <button onClick={stopRecording} className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black">
                   Send 🎙️
                 </button>
               </div>
             </div>
           ) : (
-            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2">
+            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-1.5 min-w-0">
               <input
                 type="text"
-                placeholder="Type a secret message..."
+                placeholder="Type a message..."
                 value={messageText}
                 onChange={(e) => {
                   setMessageText(e.target.value);
                   sendTyping(e.target.value.length > 0, 'normal');
                 }}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 shadow-inner"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-full px-4 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 shadow-inner min-w-0"
               />
 
               {messageText.trim() ? (
                 <button
                   type="submit"
-                  className="p-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-black transition-transform active:scale-95 shrink-0 shadow-lg shadow-emerald-500/30"
-                  title="Send Message"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-black transition-transform active:scale-90 shrink-0 shadow-md shadow-emerald-500/30"
+                  title="Send message"
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-4 h-4 fill-current ml-0.5" />
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={startRecording}
-                  className="p-2.5 rounded-2xl bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-all active:scale-95 shrink-0"
-                  title="Hold to record voice note"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 flex items-center justify-center transition-transform active:scale-90 shrink-0"
+                  title="Record audio note"
                 >
                   <Mic className="w-4 h-4" />
                 </button>
@@ -1430,7 +1388,216 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* Image Fullscreen Preview Modal */}
+      {/* Clear Chat Confirmation Modal */}
+      {clearChatConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 animate-in fade-in select-none backdrop-blur-sm">
+          <div className="w-full max-w-sm glass-panel p-6 rounded-3xl bg-slate-950 border border-slate-800 space-y-4 text-center shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center text-xl mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-white">Clear this chat?</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                This will remove the conversation history from this private chat.
+              </p>
+            </div>
+            <div className="flex gap-2.5 pt-2">
+              <button
+                onClick={() => setClearChatConfirmOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmExecuteClearChat}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs transition-transform active:scale-95 shadow-lg shadow-red-600/30"
+              >
+                Clear Chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single Message Delete Confirmation */}
+      {deleteMsgConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 animate-in fade-in select-none backdrop-blur-sm">
+          <div className="w-full max-w-xs glass-panel p-5 rounded-3xl bg-slate-950 border border-slate-800 space-y-4 text-center shadow-2xl">
+            <h4 className="text-sm font-black text-white">Delete message for everyone?</h4>
+            <p className="text-xs text-slate-400">This message will be removed from both devices.</p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setDeleteMsgConfirmId(null)}
+                className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteSingleMessage}
+                className="flex-1 py-2 rounded-xl bg-red-600 text-white font-black text-xs"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Partner Profile Modal */}
+      {partnerInfoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 animate-in fade-in select-none backdrop-blur-md">
+          <div className="w-full max-w-sm glass-panel p-6 rounded-3xl bg-slate-950/95 border border-emerald-500/40 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setPartnerInfoOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-3 pt-2">
+              <div className="relative w-20 h-20 mx-auto">
+                <Avatar
+                  src={otherPartner?.avatar_url}
+                  name={otherPartner?.username || 'Partner'}
+                  className="w-20 h-20 rounded-3xl ring-4 ring-emerald-500/40 shadow-xl"
+                />
+                <div
+                  className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-slate-950 ${
+                    otherPartner?.is_online ? 'bg-emerald-400 ring-2 ring-emerald-400/50' : 'bg-slate-600'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white">{otherPartner?.username || 'Duo Partner'}</h3>
+                <p className="text-xs text-emerald-400 font-mono font-bold">
+                  {otherPartner?.is_online ? 'Active Now (Online)' : `Last seen ${formatLastSeen(otherPartner?.last_seen)}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Room Info */}
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-center">
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
+                PAIRED 1v1 ROOM CODE
+              </span>
+              <div className="text-2xl font-black font-mono text-emerald-400 tracking-wider">
+                {roomData?.code || '---'}
+              </div>
+              <div className="flex gap-2 justify-center pt-1">
+                <button
+                  onClick={handleCopyCode}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedCode ? 'Copied!' : 'Copy'}</span>
+                </button>
+                <button
+                  onClick={handleCopyWhatsApp}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-300 text-xs font-bold hover:bg-emerald-600/50 flex items-center gap-1.5"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>WhatsApp</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Call Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  startAudioCall();
+                }}
+                className="py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md active:scale-95"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Audio Call</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  startVideoCall();
+                }}
+                className="py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md active:scale-95"
+              >
+                <Video className="w-4 h-4" />
+                <span>HD Video</span>
+              </button>
+            </div>
+
+            {/* Quick Media & Starred Links */}
+            <div className="space-y-1.5 pt-1">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handleOpenMediaGallery();
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-cyan-400" />
+                  <span>Shared Media, Links & Docs</span>
+                </div>
+                <span className="text-slate-500 text-xs">›</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  handleOpenStarred();
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                  <span>Starred Messages</span>
+                </div>
+                <span className="text-slate-500 text-xs">›</span>
+              </button>
+            </div>
+
+            {/* Clear Chat & Emergency Actions */}
+            <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  setPartnerInfoOpen(false);
+                  setClearChatConfirmOpen(true);
+                }}
+                className="w-full py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4 text-slate-400" />
+                <span>Clear Chat History</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setPartnerInfoOpen(false);
+                    handlePanicClear();
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/20"
+                >
+                  🚨 Stealth Wipe
+                </button>
+
+                <button
+                  onClick={() => {
+                    setPartnerInfoOpen(false);
+                    handleUnpair();
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/30 text-xs font-bold hover:bg-red-500/20"
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Preview */}
       {previewImageModal && (
         <div
           onClick={() => setPreviewImageModal(null)}
@@ -1448,38 +1615,60 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* GPS Location Confirmation Modal */}
-      {locationConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="w-full max-w-xs glass-panel p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-2xl mx-auto">
-              📍
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-white">Share GPS Location?</h4>
-              <p className="text-xs text-slate-400 mt-1">
-                Your exact Google Maps location pin will be shared with your duo partner.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setLocationConfirmOpen(false)}
-                className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeSendLocation}
-                className="flex-1 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs"
-              >
-                Share Now
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Modals for Calling, Theme, Media & Camera */}
+      {videoCallOpen && (
+        <VideoCallModal isOpen={videoCallOpen} onClose={() => setVideoCallOpen(false)} />
       )}
 
-      {/* Chat Theme Picker Modal */}
+      {audioCallOpen && (
+        <AudioCallModal isOpen={audioCallOpen} onClose={() => setAudioCallOpen(false)} />
+      )}
+
+      {incomingCall && (
+        <IncomingCallModal
+          incomingCall={incomingCall}
+          onAccept={() => {
+            if (incomingCall.callType === 'video') setVideoCallOpen(true);
+            else setAudioCallOpen(true);
+            setIncomingCall(null);
+          }}
+          onDecline={() => {
+            const s = getSocket();
+            if (s) {
+              s.emit('call:decline_call', {
+                callerSocketId: incomingCall.caller?.socketId,
+                roomId: roomData?.id
+              });
+            }
+            setIncomingCall(null);
+          }}
+        />
+      )}
+
+      {cameraModalOpen && (
+        <CameraCaptureModal
+          isOpen={cameraModalOpen}
+          onClose={() => setCameraModalOpen(false)}
+          onCapture={async (blob) => {
+            const formData = new FormData();
+            formData.append('file', blob, 'camera_capture.jpg');
+            try {
+              const res = await api.uploadFile(roomData?.id, formData);
+              await sendMessage({
+                text: '📷 Live Camera Photo',
+                channel: 'normal',
+                metadata: { fileUrl: res.fileUrl, fileType: 'image/jpeg' }
+              });
+              try { playSound('send'); } catch {}
+            } catch (err) {
+              alert('Failed to send photo.');
+            }
+            setCameraModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Theme Picker Modal */}
       {themePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-xs glass-panel p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
@@ -1604,206 +1793,6 @@ export function ChatView({ onBack, onOpenInvite }) {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Modals for Calling & Camera */}
-      {videoCallOpen && (
-        <VideoCallModal
-          isOpen={videoCallOpen}
-          onClose={() => setVideoCallOpen(false)}
-        />
-      )}
-
-      {audioCallOpen && (
-        <AudioCallModal
-          isOpen={audioCallOpen}
-          onClose={() => setAudioCallOpen(false)}
-        />
-      )}
-
-      {incomingCall && (
-        <IncomingCallModal
-          incomingCall={incomingCall}
-          onAccept={() => {
-            if (incomingCall.callType === 'video') setVideoCallOpen(true);
-            else setAudioCallOpen(true);
-            setIncomingCall(null);
-          }}
-          onDecline={() => {
-            const s = getSocket();
-            if (s) {
-              s.emit('call:decline_call', {
-                callerSocketId: incomingCall.caller?.socketId,
-                roomId: roomData?.id
-              });
-            }
-            setIncomingCall(null);
-          }}
-        />
-      )}
-
-      {cameraModalOpen && (
-        <CameraCaptureModal
-          isOpen={cameraModalOpen}
-          onClose={() => setCameraModalOpen(false)}
-          onCapture={async (blob) => {
-            const formData = new FormData();
-            formData.append('file', blob, 'camera_capture.jpg');
-            try {
-              const res = await api.uploadFile(roomData?.id, formData);
-              await sendMessage({
-                text: '📷 Live Camera Photo',
-                channel: 'normal',
-                metadata: { fileUrl: res.fileUrl, fileType: 'image/jpeg' }
-              });
-              try { playSound('send'); } catch {}
-            } catch (err) {
-              alert('Failed to send photo.');
-            }
-            setCameraModalOpen(false);
-          }}
-        />
-      )}
-
-      {/* Partner Profile Modal */}
-      {partnerInfoOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in select-none">
-          <div className="w-full max-w-sm glass-panel p-6 rounded-3xl bg-slate-950/95 border border-emerald-500/40 shadow-2xl space-y-5 relative">
-            <button
-              onClick={() => setPartnerInfoOpen(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center space-y-3 pt-2">
-              <div className="relative w-20 h-20 mx-auto">
-                <Avatar
-                  src={otherPartner?.avatar_url}
-                  name={otherPartner?.username || 'Partner'}
-                  className="w-20 h-20 rounded-3xl ring-4 ring-emerald-500/40 shadow-xl"
-                />
-                <div
-                  className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-slate-950 ${
-                    otherPartner?.is_online ? 'bg-emerald-400 ring-2 ring-emerald-400/50' : 'bg-slate-600'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-white">{otherPartner?.username || 'Duo Partner'}</h3>
-                <p className="text-xs text-emerald-400 font-mono font-bold">
-                  {otherPartner?.is_online ? 'Active Now (Online)' : `Last seen ${formatLastSeen(otherPartner?.last_seen)}`}
-                </p>
-              </div>
-            </div>
-
-            {/* Room Info */}
-            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-center">
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">
-                PAIRED 1v1 ROOM CODE
-              </span>
-              <div className="text-2xl font-black font-mono text-emerald-400 tracking-wider">
-                {roomData?.code || '---'}
-              </div>
-              <div className="flex gap-2 justify-center pt-1">
-                <button
-                  onClick={handleCopyCode}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-bold text-slate-200 hover:text-white flex items-center gap-1.5"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedCode ? 'Copied!' : 'Copy'}</span>
-                </button>
-                <button
-                  onClick={handleCopyWhatsApp}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-300 text-xs font-bold hover:bg-emerald-600/50 flex items-center gap-1.5"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>Invite</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Call Buttons */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  startAudioCall();
-                }}
-                className="py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-95"
-              >
-                <Phone className="w-4 h-4" />
-                <span>Audio Call</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  startVideoCall();
-                }}
-                className="py-2.5 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-cyan-500/20 active:scale-95"
-              >
-                <Video className="w-4 h-4" />
-                <span>HD Video</span>
-              </button>
-            </div>
-
-            {/* Quick Media & Starred Links */}
-            <div className="space-y-1.5 pt-1">
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  handleOpenMediaGallery();
-                }}
-                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-cyan-400" />
-                  <span>Shared Media, Links & Docs</span>
-                </div>
-                <span className="text-slate-500 text-xs">›</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  handleOpenStarred();
-                }}
-                className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-300 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                  <span>Starred Messages</span>
-                </div>
-                <span className="text-slate-500 text-xs">›</span>
-              </button>
-            </div>
-
-            {/* Emergency Clear & Unpair */}
-            <div className="flex gap-2 pt-2 border-t border-slate-800">
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  handlePanicClear();
-                }}
-                className="flex-1 py-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/20"
-              >
-                🚨 Wipe Chat
-              </button>
-
-              <button
-                onClick={() => {
-                  setPartnerInfoOpen(false);
-                  handleUnpair();
-                }}
-                className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/30 text-xs font-bold hover:bg-red-500/20"
-              >
-                Disconnect
-              </button>
-            </div>
           </div>
         </div>
       )}

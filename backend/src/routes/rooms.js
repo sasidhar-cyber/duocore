@@ -95,9 +95,9 @@ router.get('/:roomId/messages', requireAuth, (req, res) => {
            (SELECT COUNT(*) FROM pinned_messages pm WHERE pm.message_id = m.id AND pm.room_id = m.room_id) as is_pinned
     FROM messages m
     LEFT JOIN users u ON m.sender_id = u.id
-    LEFT JOIN messages orig ON m.reply_to_id = orig.id
+    LEFT JOIN messages orig ON m.reply_to_id = orig.id AND IFNULL(orig.is_deleted, 0) = 0
     LEFT JOIN users orig_u ON orig.sender_id = orig_u.id
-    WHERE m.room_id = ? AND IFNULL(m.channel_type, 'normal') = ?
+    WHERE m.room_id = ? AND IFNULL(m.channel_type, 'normal') = ? AND IFNULL(m.is_deleted, 0) = 0
     ORDER BY m.created_at ASC
     LIMIT 400
   `).all(userId, roomId, channel);
@@ -219,7 +219,40 @@ router.post('/:roomId/messages/read', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Delete Message (Delete for Everyone)
+// Clear Entire Chat (Remove all conversation history for this room)
+router.delete('/:roomId/messages', requireAuth, (req, res) => {
+  const { roomId } = req.params;
+  const { channel = 'normal' } = req.query;
+  const userId = req.user.id;
+
+  if (!isUserInActiveRoom(userId, roomId)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  const result = db.prepare(`
+    UPDATE messages
+    SET is_deleted = 1, text = '', metadata = '{}'
+    WHERE room_id = ? AND IFNULL(channel_type, 'normal') = ? AND IFNULL(is_deleted, 0) = 0
+  `).run(roomId, channel);
+
+  // Clean up starred and pinned references for this room
+  db.prepare('DELETE FROM starred_messages WHERE room_id = ?').run(roomId);
+  db.prepare('DELETE FROM pinned_messages WHERE room_id = ?').run(roomId);
+
+  const io = req.app.get('io');
+  if (io) {
+    io.to(roomId).emit('chat:room_cleared', { roomId, channel, clearedBy: userId });
+  }
+
+  const { syncTableToCloud } = require('../db/cloudSync');
+  syncTableToCloud(db, 'messages').catch(() => {});
+  syncTableToCloud(db, 'starred_messages').catch(() => {});
+  syncTableToCloud(db, 'pinned_messages').catch(() => {});
+
+  res.json({ success: true, cleared: result.changes });
+});
+
+// Delete Single Message (Delete for Everyone)
 router.delete('/:roomId/messages/:messageId', requireAuth, (req, res) => {
   const { roomId, messageId } = req.params;
   const userId = req.user.id;
@@ -242,26 +275,32 @@ router.delete('/:roomId/messages/:messageId', requireAuth, (req, res) => {
 
   db.prepare(`
     UPDATE messages
-    SET is_deleted = 1, text = '🚫 This message was deleted', metadata = '{}'
+    SET is_deleted = 1, text = '', metadata = '{}'
     WHERE id = ?
   `).run(messageId);
+
+  db.prepare('DELETE FROM starred_messages WHERE message_id = ?').run(messageId);
+  db.prepare('DELETE FROM pinned_messages WHERE message_id = ?').run(messageId);
 
   const io = req.app.get('io');
   if (io) {
     io.to(roomId).emit('chat:message_deleted', {
       messageId,
       roomId,
-      channel: msg.channel_type,
+      channel: msg.channel_type || 'normal',
       deletedBy: userId
     });
   }
+
+  const { syncTableToCloud } = require('../db/cloudSync');
+  syncTableToCloud(db, 'messages').catch(() => {});
+  syncTableToCloud(db, 'starred_messages').catch(() => {});
+  syncTableToCloud(db, 'pinned_messages').catch(() => {});
 
   res.json({ message: 'Message deleted', messageId });
 });
 
 // Panic clear: used only after the owner has enabled the failed-PIN safety rule.
-// Messages are soft-deleted so a client can immediately hide them without
-// leaving partially visible message content in the active conversation.
 router.post('/:roomId/panic-clear', requireAuth, (req, res) => {
   const { roomId } = req.params;
   const userId = req.user.id;
@@ -272,12 +311,20 @@ router.post('/:roomId/panic-clear', requireAuth, (req, res) => {
 
   const result = db.prepare(`
     UPDATE messages
-    SET is_deleted = 1, text = '🚫 This message was deleted', metadata = '{}'
-    WHERE room_id = ? AND is_deleted = 0
+    SET is_deleted = 1, text = '', metadata = '{}'
+    WHERE room_id = ? AND IFNULL(is_deleted, 0) = 0
   `).run(roomId);
+
+  db.prepare('DELETE FROM starred_messages WHERE room_id = ?').run(roomId);
+  db.prepare('DELETE FROM pinned_messages WHERE room_id = ?').run(roomId);
 
   const io = req.app.get('io');
   if (io) io.to(roomId).emit('chat:room_cleared', { roomId, clearedBy: userId });
+
+  const { syncTableToCloud } = require('../db/cloudSync');
+  syncTableToCloud(db, 'messages').catch(() => {});
+  syncTableToCloud(db, 'starred_messages').catch(() => {});
+  syncTableToCloud(db, 'pinned_messages').catch(() => {});
 
   res.json({ success: true, cleared: result.changes });
 });
