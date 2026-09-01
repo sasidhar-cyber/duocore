@@ -43,9 +43,12 @@ import {
   UserPlus,
   Sparkles,
   Link as LinkIcon,
-  Loader2
+  Loader2,
+  ChevronDown,
+  MessageSquare
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
+import { showBrowserNotification } from '../utils/notificationService';
 
 const CHAT_THEMES = [
   { id: 'default', name: 'Emerald Wave (Default)', bg: 'bg-slate-950/95', bubbleMe: 'bg-emerald-600', bubbleOther: 'bg-slate-900' },
@@ -69,6 +72,18 @@ export function getMediaUrl(url) {
     }
   }
   return url;
+}
+
+function formatMessageDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
 }
 
 // WhatsApp Style Voice Note Player
@@ -100,7 +115,7 @@ function AudioMemoPlayer({ fileUrl }) {
     <div className="p-2 sm:p-2.5 rounded-2xl bg-black/30 border border-white/10 flex items-center gap-3 w-64 max-w-full">
       <audio
         ref={audioRef}
-        src={fileUrl}
+        src={resolvedUrl}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
         onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
         onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
@@ -159,6 +174,7 @@ export function ChatView({ onBack, onOpenInvite }) {
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [previewImageModal, setPreviewImageModal] = useState(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
 
   // Invite & Pairing Form State
   const [lobbyMode, setLobbyMode] = useState('select'); // 'select' | 'create' | 'join'
@@ -220,12 +236,27 @@ export function ChatView({ onBack, onOpenInvite }) {
   const timerRef = useRef(null);
 
   const messagesEndRef = useRef(null);
+  const chatScrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!showScrollBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [normalMessages.length, partnerTyping]);
+
+  // Handle scroll detection for floating scroll-to-bottom button
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 120;
+    setShowScrollBottom(!isNearBottom);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setShowScrollBottom(false);
+  };
 
   // Mark messages as read when chat is active
   useEffect(() => {
@@ -241,6 +272,15 @@ export function ChatView({ onBack, onOpenInvite }) {
 
     const handleIncomingRing = (callData) => {
       setIncomingCall(callData);
+      if (localStorage.getItem('duocore_notif_calls') !== 'false') {
+        playSound('message');
+        if (document.hidden) {
+          showBrowserNotification(`Incoming ${callData.callType === 'video' ? 'Video' : 'Audio'} Call`, {
+            body: `${callData.caller?.username || 'Duo Partner'} is calling you...`,
+            tag: 'duocore-call'
+          });
+        }
+      }
     };
 
     const handleCallDeclined = () => {
@@ -600,7 +640,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   return (
     <div className={`h-full w-full flex flex-col ${currentThemeObj.bg} rounded-3xl border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}>
-      {/* 1. WHATSAPP STYLE 1v1 HEADER */}
+      {/* 1. 1v1 PRIVATE CHAT HEADER */}
       <div className="p-3 sm:p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           {onBack && (
@@ -824,11 +864,15 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* 2. CHAT STREAM (Natural top-down growth, sender right, receiver left) */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 flex flex-col justify-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
+      {/* 2. CHAT STREAM (Natural top-down conversation) */}
+      <div
+        ref={chatScrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 flex flex-col justify-start bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] relative"
+      >
         {hasPartner ? (
           /* PAIRED ACTIVE BANNER */
-          <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2 max-w-lg w-full mx-auto mb-2 animate-in fade-in shrink-0">
+          <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2 max-w-lg w-full mx-auto mb-1 animate-in fade-in shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm font-bold shrink-0">
                 🔒
@@ -1000,9 +1044,45 @@ export function ChatView({ onBack, onOpenInvite }) {
           </div>
         )}
 
-        {/* Message Stream */}
+        {/* Empty State when Paired but No Messages Yet */}
+        {hasPartner && normalMessages.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto animate-in fade-in">
+            <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-3xl shadow-inner">
+              💬
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm sm:text-base font-black text-white">Private Duo Room Ready</h3>
+              <p className="text-xs text-slate-400 max-w-xs">
+                Messages and media are end-to-end synchronized. Start chatting or share a track!
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => sendMessage({ text: '👋 Hey there! Connected on DuoCore.' })}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
+              >
+                👋 Say Hi
+              </button>
+              <button
+                onClick={() => {
+                  if (currentTrack) {
+                    sendMessage({ text: '🎵 Listening to this track:', metadata: { song: currentTrack } });
+                  } else {
+                    sendMessage({ text: '🎵 What music are you listening to?' });
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-xs font-bold text-slate-300 hover:text-emerald-400 transition-all active:scale-95"
+              >
+                🎵 Share Music
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Message Stream with Date Separators */}
         {normalMessages.map((msg, idx) => {
           const isMe = String(msg.sender_id) === String(user?.id);
+          const showDateHeader = idx === 0 || formatMessageDate(normalMessages[idx - 1]?.created_at) !== formatMessageDate(msg.created_at);
 
           let meta = {};
           if (msg.metadata) {
@@ -1013,195 +1093,216 @@ export function ChatView({ onBack, onOpenInvite }) {
           }
 
           return (
-            <div
-              key={msg.id || idx}
-              id={`msg-${msg.id}`}
-              className={`flex items-end gap-2 group transition-all ${isMe ? 'justify-end' : 'justify-start'}`}
-            >
-              {!isMe && (
-                <img
-                  src={partnerAvatar}
-                  alt={msg.username}
-                  className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1 ring-1 ring-slate-700"
-                />
+            <React.Fragment key={msg.id || idx}>
+              {/* Date Separator Pill */}
+              {showDateHeader && msg.created_at && (
+                <div className="flex items-center justify-center my-2 shrink-0">
+                  <span className="px-3 py-0.5 rounded-full bg-slate-900/90 border border-slate-800 text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider shadow-sm">
+                    {formatMessageDate(msg.created_at)}
+                  </span>
+                </div>
               )}
 
               <div
-                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
-                  isMe
-                    ? `${currentThemeObj.bubbleMe} text-white rounded-br-none ml-auto`
-                    : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none mr-auto`
-                }`}
+                id={`msg-${msg.id}`}
+                className={`flex items-end gap-2 group transition-all animate-in fade-in slide-in-from-bottom-1 duration-150 ${isMe ? 'justify-end' : 'justify-start'}`}
               >
-                {/* Reply Quote Preview */}
-                {(msg.reply_to_text || msg.replyTo?.text) && (
-                  <div
-                    onClick={() => {
-                      const targetId = msg.reply_to_id || msg.replyTo?.id;
-                      if (targetId) {
-                        const el = document.getElementById(`msg-${targetId}`);
-                        if (el) {
-                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          el.classList.add('ring-2', 'ring-emerald-400', 'scale-[1.02]');
-                          setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'scale-[1.02]'), 1500);
-                        }
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1.5 cursor-pointer hover:bg-black/40 transition-colors"
-                  >
-                    <span className="font-bold text-[10px] text-emerald-300 block">
-                      {msg.reply_to_username || msg.replyTo?.username || 'Partner'}
-                    </span>
-                    <p className="truncate text-[11px] text-slate-300">
-                      {msg.reply_to_text || msg.replyTo?.text}
-                    </p>
-                  </div>
+                {!isMe && (
+                  <img
+                    src={partnerAvatar}
+                    alt={msg.username}
+                    className="w-7 h-7 rounded-xl object-cover shrink-0 mb-1 ring-1 ring-slate-700"
+                  />
                 )}
 
-                {/* Shared Music Card */}
-                {meta?.song && (
-                  <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={meta.song.thumbnail}
-                        alt={meta.song.title}
-                        className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
-                          DUOCORE MUSIC TRACK
-                        </span>
-                        <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
-                        <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
-                      </div>
-                    </div>
-
-                    <button
+                <div
+                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-3.5 space-y-1.5 shadow-lg relative ${
+                    isMe
+                      ? `${currentThemeObj.bubbleMe} text-white rounded-br-none ml-auto`
+                      : `${currentThemeObj.bubbleOther} text-slate-100 border border-slate-800 rounded-bl-none mr-auto`
+                  }`}
+                >
+                  {/* Reply Quote Preview */}
+                  {(msg.reply_to_text || msg.replyTo?.text) && (
+                    <div
                       onClick={() => {
-                        playTrack(meta.song);
-                        openNowPlaying();
+                        const targetId = msg.reply_to_id || msg.replyTo?.id;
+                        if (targetId) {
+                          const el = document.getElementById(`msg-${targetId}`);
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.classList.add('ring-2', 'ring-emerald-400', 'scale-[1.02]');
+                            setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'scale-[1.02]'), 1500);
+                          }
+                        }
                       }}
-                      className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
+                      className="p-2 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1.5 cursor-pointer hover:bg-black/40 transition-colors"
                     >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>Play on DuoCore</span>
-                    </button>
-                  </div>
-                )}
+                      <span className="font-bold text-[10px] text-emerald-300 block">
+                        {msg.reply_to_username || msg.replyTo?.username || 'Partner'}
+                      </span>
+                      <p className="truncate text-[11px] text-slate-300">
+                        {msg.reply_to_text || msg.replyTo?.text}
+                      </p>
+                    </div>
+                  )}
 
-                {/* Photo / Image */}
-                {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
-                  <div className="rounded-2xl overflow-hidden max-h-80 border border-white/10 relative group/img mt-1">
-                    <img
-                      src={getMediaUrl(meta.fileUrl)}
-                      alt="Photo"
-                      loading="lazy"
-                      className="w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                      onClick={() => setPreviewImageModal(getMediaUrl(meta.fileUrl))}
-                    />
-                  </div>
-                )}
+                  {/* Shared Music Card */}
+                  {meta?.song && (
+                    <div className="p-3 rounded-2xl bg-black/40 border border-white/20 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={meta.song.thumbnail}
+                          alt={meta.song.title}
+                          className="w-14 h-14 rounded-xl object-cover ring-1 ring-emerald-400/50 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                            DUOCORE MUSIC TRACK
+                          </span>
+                          <h4 className="text-xs sm:text-sm font-black text-white truncate">{meta.song.title}</h4>
+                          <p className="text-[11px] text-slate-300 truncate">{meta.song.artist}</p>
+                        </div>
+                      </div>
 
-                {/* Voice Note Player */}
-                {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
-                  <AudioMemoPlayer fileUrl={getMediaUrl(meta.fileUrl)} />
-                )}
-
-                {/* Generic File Download */}
-                {meta?.fileUrl && !meta?.fileType?.startsWith('image/') && !meta?.fileType?.startsWith('audio/') && (
-                  <a
-                    href={getMediaUrl(meta.fileUrl)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2.5 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-1"
-                  >
-                    <span className="truncate font-bold">{meta.fileName || '📎 Download Attachment'}</span>
-                    <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-2" />
-                  </a>
-                )}
-
-                {/* Message Text */}
-                {msg.text && !meta?.song && (
-                  <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
-                    {msg.text.startsWith('📍 Shared Live Location:') ? (
-                      <a
-                        href={msg.text.replace('📍 Shared Live Location: ', '')}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline text-cyan-300 font-bold flex items-center gap-1"
+                      <button
+                        onClick={() => {
+                          playTrack(meta.song);
+                          openNowPlaying();
+                        }}
+                        className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/30 transition-transform active:scale-95"
                       >
-                        <MapPin className="w-4 h-4" />
-                        <span>View Live Google Maps Location</span>
-                      </a>
-                    ) : (
-                      msg.text
-                    )}
-                  </p>
-                )}
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>Play on DuoCore</span>
+                      </button>
+                    </div>
+                  )}
 
-                {/* Timestamp & Real Ticks */}
-                <div className="flex items-center justify-end gap-1.5 text-[10px] opacity-80 font-mono pt-0.5">
-                  {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
-                  <span>
-                    {msg.created_at
-                      ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : ''}
-                  </span>
-                  {isMe && (
-                    <span className="flex items-center" title={msg.is_read ? 'Read (Blue Double Tick)' : otherPartner?.is_online ? 'Delivered' : 'Sent'}>
-                      {msg.is_read ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-cyan-300 stroke-[2.5]" />
-                      ) : otherPartner?.is_online ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-slate-300 stroke-[2]" />
+                  {/* Photo / Image */}
+                  {meta?.fileUrl && meta?.fileType?.startsWith('image/') && (
+                    <div className="rounded-2xl overflow-hidden max-h-80 border border-white/10 relative group/img mt-1">
+                      <img
+                        src={getMediaUrl(meta.fileUrl)}
+                        alt="Photo"
+                        loading="lazy"
+                        className="w-full h-auto max-h-80 object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                        onClick={() => setPreviewImageModal(getMediaUrl(meta.fileUrl))}
+                      />
+                    </div>
+                  )}
+
+                  {/* Voice Note Player */}
+                  {meta?.fileUrl && meta?.fileType?.startsWith('audio/') && (
+                    <AudioMemoPlayer fileUrl={getMediaUrl(meta.fileUrl)} />
+                  )}
+
+                  {/* Generic File Download */}
+                  {meta?.fileUrl && !meta?.fileType?.startsWith('image/') && !meta?.fileType?.startsWith('audio/') && (
+                    <a
+                      href={getMediaUrl(meta.fileUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-2.5 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs text-slate-200 hover:text-white mt-1"
+                    >
+                      <span className="truncate font-bold">{meta.fileName || '📎 Download Attachment'}</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-2" />
+                    </a>
+                  )}
+
+                  {/* Message Text */}
+                  {msg.text && !meta?.song && (
+                    <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
+                      {msg.text.startsWith('📍 Shared Live Location:') ? (
+                        <a
+                          href={msg.text.replace('📍 Shared Live Location: ', '')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline text-cyan-300 font-bold flex items-center gap-1"
+                        >
+                          <MapPin className="w-4 h-4" />
+                          <span>View Live Google Maps Location</span>
+                        </a>
                       ) : (
-                        <Check className="w-3.5 h-3.5 text-slate-400 stroke-[2]" />
+                        msg.text
                       )}
+                    </p>
+                  )}
+
+                  {/* Timestamp & Real Ticks */}
+                  <div className="flex items-center justify-end gap-1.5 text-[10px] opacity-80 font-mono pt-0.5">
+                    {msg.is_starred ? <Star className="w-3 h-3 text-yellow-300 fill-current" /> : null}
+                    <span>
+                      {msg.created_at
+                        ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : ''}
                     </span>
+                    {isMe && (
+                      <span className="flex items-center" title={msg.is_read ? 'Read (Blue Double Tick)' : otherPartner?.is_online ? 'Delivered' : 'Sent'}>
+                        {msg.is_read ? (
+                          <CheckCheck className="w-3.5 h-3.5 text-cyan-300 stroke-[2.5]" />
+                        ) : otherPartner?.is_online ? (
+                          <CheckCheck className="w-3.5 h-3.5 text-slate-300 stroke-[2]" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5 text-slate-400 stroke-[2]" />
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Context Actions (Reply, Star, Pin, Delete) */}
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
+                  <button
+                    onClick={() => setReplyTo(msg)}
+                    className="p-1 text-slate-400 hover:text-white"
+                    title="Reply"
+                  >
+                    <Reply className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    onClick={() => handleToggleStar(msg)}
+                    className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
+                    title="Star message"
+                  >
+                    <Star className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    onClick={() => handleTogglePin(msg)}
+                    className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
+                    title="Pin message"
+                  >
+                    <Pin className="w-3 h-3" />
+                  </button>
+
+                  {isMe && (
+                    <button
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      className="p-1 text-slate-400 hover:text-red-400"
+                      title="Delete message"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   )}
                 </div>
               </div>
-
-              {/* Context Actions (Reply, Star, Pin, Delete) */}
-              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 bg-slate-900/90 border border-slate-800 rounded-xl p-1 shadow-lg transition-opacity shrink-0">
-                <button
-                  onClick={() => setReplyTo(msg)}
-                  className="p-1 text-slate-400 hover:text-white"
-                  title="Reply"
-                >
-                  <Reply className="w-3 h-3" />
-                </button>
-
-                <button
-                  onClick={() => handleToggleStar(msg)}
-                  className={`p-1 ${msg.is_starred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}`}
-                  title="Star message"
-                >
-                  <Star className="w-3 h-3" />
-                </button>
-
-                <button
-                  onClick={() => handleTogglePin(msg)}
-                  className={`p-1 ${msg.is_pinned ? 'text-emerald-400' : 'text-slate-400 hover:text-emerald-400'}`}
-                  title="Pin message"
-                >
-                  <Pin className="w-3 h-3" />
-                </button>
-
-                {isMe && (
-                  <button
-                    onClick={() => handleDeleteMessage(msg.id)}
-                    className="p-1 text-slate-400 hover:text-red-400"
-                    title="Delete message"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
+            </React.Fragment>
           );
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Floating Scroll-to-Bottom Button */}
+      {showScrollBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute right-4 bottom-20 z-40 p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all animate-in fade-in zoom-in-95 active:scale-90"
+          title="Scroll to latest messages"
+        >
+          <ChevronDown className="w-4 h-4 stroke-[3]" />
+        </button>
+      )}
 
       {/* Uploading Progress Toast */}
       {uploadingMedia && (
@@ -1213,7 +1314,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* Reply Preview Bar */}
       {replyTo && (
-        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0">
+        <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0 animate-in slide-in-from-bottom-2">
           <div className="flex items-center gap-2 min-w-0">
             <CornerDownRight className="w-4 h-4 text-emerald-400 shrink-0" />
             <div className="min-w-0">
@@ -1227,7 +1328,7 @@ export function ChatView({ onBack, onOpenInvite }) {
         </div>
       )}
 
-      {/* 3. WHATSAPP BOTTOM COMPOSER */}
+      {/* 3. BOTTOM COMPOSER */}
       {hasPartner && (
         <div className="p-2 sm:p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <input
@@ -1323,13 +1424,13 @@ export function ChatView({ onBack, onOpenInvite }) {
       {previewImageModal && (
         <div
           onClick={() => setPreviewImageModal(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 animate-in fade-in cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 animate-in fade-in cursor-pointer backdrop-blur-md"
         >
-          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl border border-slate-800">
+          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border border-slate-800 shadow-2xl">
             <img src={previewImageModal} alt="Enlarged view" className="w-full h-full object-contain" />
             <button
               onClick={() => setPreviewImageModal(null)}
-              className="absolute top-3 right-3 p-2 rounded-full bg-slate-950/80 text-white hover:bg-slate-900"
+              className="absolute top-3 right-3 p-2 rounded-full bg-slate-950/80 text-white hover:bg-slate-900 border border-slate-700"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1430,10 +1531,10 @@ export function ChatView({ onBack, onOpenInvite }) {
                     {mediaData.photos.map((p) => (
                       <img
                         key={p.id}
-                        src={p.url}
+                        src={getMediaUrl(p.url)}
                         alt="Photo"
                         className="aspect-square object-cover rounded-xl cursor-pointer hover:scale-105 transition-transform"
-                        onClick={() => window.open(p.url, '_blank')}
+                        onClick={() => setPreviewImageModal(getMediaUrl(p.url))}
                       />
                     ))}
                   </div>
@@ -1448,7 +1549,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                   mediaData.documents.map((d) => (
                     <a
                       key={d.id}
-                      href={d.url}
+                      href={getMediaUrl(d.url)}
                       target="_blank"
                       rel="noreferrer"
                       className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs text-slate-300 hover:text-white mb-2"
