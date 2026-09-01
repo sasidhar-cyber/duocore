@@ -560,8 +560,11 @@ export function MusicHomePage({ onOpenPinPrompt }) {
                     >
                       <div className="relative aspect-square rounded-xl overflow-hidden">
                         <img
-                          src={track.thumbnail}
+                          src={track.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
                           alt={track.title}
+                          onError={(e) => {
+                            e.target.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop';
+                          }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -604,8 +607,11 @@ export function MusicHomePage({ onOpenPinPrompt }) {
                   >
                     <div className="relative aspect-square rounded-xl overflow-hidden">
                       <img
-                        src={album.cover}
+                        src={album.cover || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
                         alt={album.title}
+                        onError={(e) => {
+                          e.target.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop';
+                        }}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[9px] font-mono font-bold text-emerald-400 border border-white/10">
@@ -704,8 +710,11 @@ export function MusicHomePage({ onOpenPinPrompt }) {
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0">
                           <img
-                            src={track.thumbnail}
+                            src={track.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
                             alt={track.title}
+                            onError={(e) => {
+                              e.target.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop';
+                            }}
                             className="w-full h-full object-cover"
                           />
                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
