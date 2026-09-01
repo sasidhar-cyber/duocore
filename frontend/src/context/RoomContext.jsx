@@ -94,6 +94,37 @@ export function RoomProvider({ children }) {
     refreshPartnerState();
   }, [refreshPartnerState]);
 
+  // Background Auto-Sync (2.5s interval to ensure 100% real-time pairing & messages even on spotty mobile data)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const activeToken = localStorage.getItem('duocore_token');
+      if (!activeToken) return;
+
+      if (currentRoomIdRef.current) {
+        try {
+          const msgRes = await api.getRoomMessages(currentRoomIdRef.current, activeChannel);
+          if (msgRes.messages) {
+            if (activeChannel === 'private') {
+              setPrivateMessages(msgRes.messages);
+            } else {
+              setNormalMessages(msgRes.messages);
+            }
+          }
+          if (!hasPartner) {
+            const partnerRes = await api.getCurrentPartner();
+            if (partnerRes.hasPartner) {
+              setHasPartner(true);
+              setPartner(partnerRes.partner);
+              setMembers(partnerRes.members || []);
+            }
+          }
+        } catch (e) {}
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [activeChannel, hasPartner]);
+
   // Socket event listeners
   useEffect(() => {
     const s = getSocket();
@@ -300,22 +331,32 @@ export function RoomProvider({ children }) {
 
     if (s && s.connected) {
       s.emit('chat:send_message', payload);
-    } else {
+    }
+
+    try {
       const res = await api.sendRoomMessage(roomData.id, {
         text: text || '',
         channel_type: channel || 'normal',
-        metadata: JSON.stringify(metadata),
+        metadata: typeof metadata === 'object' ? metadata : {},
         reply_to_id: replyTo?.id || null,
         file_url: fileUrl,
         file_type: fileType
       });
       if (res.message) {
         if (channel === 'private') {
-          setPrivateMessages((prev) => [...prev, res.message]);
+          setPrivateMessages((prev) => {
+            if (prev.some((m) => m.id === res.message.id)) return prev;
+            return [...prev, res.message];
+          });
         } else {
-          setNormalMessages((prev) => [...prev, res.message]);
+          setNormalMessages((prev) => {
+            if (prev.some((m) => m.id === res.message.id)) return prev;
+            return [...prev, res.message];
+          });
         }
       }
+    } catch (err) {
+      console.warn('[SendMessage REST] Fallback error:', err);
     }
   };
 

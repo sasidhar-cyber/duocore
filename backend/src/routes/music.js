@@ -56,10 +56,18 @@ const REEL_SHORTS_REGEX = /(#shorts|\bshorts\b|\breel\b|\breels\b|\btiktok\b|\bw
 // Curated Top Albums & Playlists (Spotify & JioSaavn Style)
 const CURATED_ALBUMS = [
   {
+    id: 'album-animal-telugu',
+    title: 'Animal (Telugu & Hindi Blockbuster)',
+    artist: 'Sonu Nigam, Vishal Mishra, Arijit Singh, Harshavardhan',
+    cover: 'https://c.saavncdn.com/466/Nanna-Nuv-Naa-Pranam-From-ANIMAL-TELUGU-Telugu-2023-20231114011010-500x500.jpg',
+    tracksCount: 12,
+    badge: 'Mega Blockbuster 🎬'
+  },
+  {
     id: 'album-telugu-blockbusters',
     title: 'Spotify Top 50 Telugu',
-    artist: 'Pushpa 2, Devara, Guntur Kaaram, Kalki 2898 AD',
-    cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=60',
+    artist: 'Devara, Guntur Kaaram, Kalki 2898 AD, Hi Nanna',
+    cover: 'https://c.saavncdn.com/313/Devara-Part-1-Telugu-Telugu-2024-20240926171010-500x500.jpg',
     tracksCount: 20,
     badge: 'Trending #1'
   },
@@ -78,48 +86,40 @@ const CURATED_ALBUMS = [
     cover: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=60',
     tracksCount: 15,
     badge: 'Top Romance'
-  },
-  {
-    id: 'album-global-top50',
-    title: 'Spotify Global Top 50',
-    artist: 'The Weeknd, Sabrina Carpenter, Billie Eilish, Bruno Mars',
-    cover: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=500&auto=format&fit=crop&q=60',
-    tracksCount: 25,
-    badge: 'Global Viral'
   }
 ];
 
 // Top Curated Spotify & JioSaavn Chartbusters with Exact Direct Song IDs & High-Res Artwork
 const SPOTIFY_JIOSAAVN_TOP_SONGS = [
-  // Telugu Top Hits
-  { id: 'iGlEUFsg', title: 'Pushpa Pushpa', artist: 'Devi Sri Prasad, Nakash Aziz', duration: '4:20', seconds: 260, thumbnail: 'https://c.saavncdn.com/366/Pushpa-2-The-Rule-Telugu-Telugu-2024-20241205211012-500x500.jpg', category: 'Telugu Hits', album: 'Pushpa 2: The Rule', language: 'Telugu', year: '2024' },
-  { id: 'vlYvjJJ4', title: 'Sooseki (The Couple Song)', artist: 'Shreya Ghoshal, DSP', duration: '4:25', seconds: 265, thumbnail: 'https://c.saavncdn.com/353/Prema-Kavithalu-2026-Valentines-Day-Special-Telugu-2026-20260212201005-500x500.jpg', category: 'Telugu Hits', album: 'Pushpa 2: The Rule', language: 'Telugu', year: '2024' },
-  { id: '4r-wShBa', title: 'Srivalli', artist: 'Sid Sriram, DSP', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/blob/056/Pushpa-The-Rise-Telugu-2021-20211216115409-500x500.jpg', category: 'Telugu Hits', album: 'Pushpa: The Rise', language: 'Telugu', year: '2021' },
+  // 🦁 ANIMAL Blockbusters (Telugu & Hindi)
+  { id: 'K4Nkmr0K', title: 'Nanna Nuv Naa Pranam', artist: 'Sonu Nigam, Harshavardhan Rameshwar', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/466/Nanna-Nuv-Naa-Pranam-From-ANIMAL-TELUGU-Telugu-2023-20231114011010-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal (Telugu)', language: 'Telugu', year: '2023' },
+  { id: 'yXAasilI', title: 'Evarevaro (Soul Version)', artist: 'Vishal Mishra, Anantha Sriram', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/420/Evarevaro-Soul-Version-From-ANIMAL-Telugu-2023-20231223151007-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal (Telugu)', language: 'Telugu', year: '2023' },
+  { id: 'N7A4fhZ7', title: 'Yaalo Yaalaa', artist: 'Jaani, Anurag Kulkarni', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/369/Yaalo-Yaalaa-Extended-Film-Version-From-ANIMAL-Telugu-2023-20231223011008-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal (Telugu)', language: 'Telugu', year: '2023' },
+  { id: 'DyHGTRu9', title: 'Ney Veyrey', artist: 'Karthik, Shreyas Puranik', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/440/Needhe-Katha-Women-s-Day-Tollywood-Musical-Melody-Telugu-2026-20260307191012-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal (Telugu)', language: 'Telugu', year: '2023' },
+  { id: '4mHUvJ4u', title: 'Satranga', artist: 'Arijit Singh, Shreyas Puranik', duration: '4:31', seconds: 271, thumbnail: 'https://c.saavncdn.com/092/ANIMAL-Hindi-2023-20260724191152-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal', language: 'Hindi', year: '2023' },
+  { id: '1e0En7YX', title: 'Pehle Bhi Main', artist: 'Vishal Mishra, Raj Shekhar', duration: '4:10', seconds: 250, thumbnail: 'https://c.saavncdn.com/092/ANIMAL-Hindi-2023-20260724191152-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal', language: 'Hindi', year: '2023' },
+  { id: 'pn0aq27z', title: 'Arjan Vailly', artist: 'Bhupinder Babbal, Manan Bhardwaj', duration: '3:02', seconds: 182, thumbnail: 'https://c.saavncdn.com/092/ANIMAL-Hindi-2023-20260724191152-500x500.jpg', category: 'Animal Blockbuster', album: 'Animal', language: 'Hindi', year: '2023' },
+
+  // ⚡ Top Telugu Chartbusters
   { id: 'O94kBTtw', title: 'Chuttamalle', artist: 'Shilpa Rao, Anirudh Ravichander', duration: '3:37', seconds: 217, thumbnail: 'https://c.saavncdn.com/313/Devara-Part-1-Telugu-Telugu-2024-20240926171010-500x500.jpg', category: 'Telugu Hits', album: 'Devara: Part 1', language: 'Telugu', year: '2024' },
   { id: 'm0Yt29rq', title: 'Fear Song', artist: 'Anirudh Ravichander', duration: '3:17', seconds: 197, thumbnail: 'https://c.saavncdn.com/313/Devara-Part-1-Telugu-Telugu-2024-20240926171010-500x500.jpg', category: 'Telugu Hits', album: 'Devara: Part 1', language: 'Telugu', year: '2024' },
   { id: 'ARuXdxyk', title: 'Kurchi Madathapetti', artist: 'Mahesh Babu, Thaman S, Sri Krishna', duration: '4:43', seconds: 283, thumbnail: 'https://c.saavncdn.com/000/Guntur-Kaaram-Telugu-2023-20240126145901-500x500.jpg', category: 'Telugu Hits', album: 'Guntur Kaaram', language: 'Telugu', year: '2024' },
   { id: 'yU_Zx3mf', title: 'Dum Masala', artist: 'Thaman S, Sanjith Hegde', duration: '3:59', seconds: 239, thumbnail: 'https://c.saavncdn.com/000/Guntur-Kaaram-Telugu-2023-20240126145901-500x500.jpg', category: 'Telugu Hits', album: 'Guntur Kaaram', language: 'Telugu', year: '2024' },
   { id: 'HfNOoigd', title: 'Ta Takkara', artist: 'Sanjith Hegde, Dhee, Santhosh Narayanan', duration: '4:44', seconds: 284, thumbnail: 'https://c.saavncdn.com/888/Kalki-2898-Ad-Telugu-Telugu-2024-20240712063717-500x500.jpg', category: 'Telugu Hits', album: 'Kalki 2898 AD', language: 'Telugu', year: '2024' },
+  { id: 'luHVr_tA', title: 'Theme Of Kalki', artist: 'Kala Bhairava, Gowtham Bharadwaj', duration: '3:15', seconds: 195, thumbnail: 'https://c.saavncdn.com/888/Kalki-2898-Ad-Telugu-Telugu-2024-20240712063717-500x500.jpg', category: 'Telugu Hits', album: 'Kalki 2898 AD', language: 'Telugu', year: '2024' },
   { id: 'Vv39UvCz', title: 'Samayama', artist: 'Hesham Abdul Wahab, Anurag Kulkarni', duration: '3:21', seconds: 201, thumbnail: 'https://c.saavncdn.com/307/Samayama-From-Hi-Nanna-Telugu-2023-20230918164922-500x500.jpg', category: 'Telugu Hits', album: 'Hi Nanna', language: 'Telugu', year: '2023' },
+  { id: 'X0EnH2OU', title: 'Ammaadi', artist: 'Shakthisree Gopalan, Kaala Bhairava', duration: '3:45', seconds: 225, thumbnail: 'https://c.saavncdn.com/712/Ammaadi-From-Hi-Nanna-Telugu-2023-20231103201011-500x500.jpg', category: 'Telugu Hits', album: 'Hi Nanna', language: 'Telugu', year: '2023' },
   { id: 'xxmBOTCY', title: 'Inthandham', artist: 'Vishal Chandrashekhar, S.P. Charan', duration: '4:02', seconds: 242, thumbnail: 'https://c.saavncdn.com/041/Sita-Ramam-Telugu-Original-Motion-Picture-Soundtrack-Telugu-2022-20220802140738-500x500.jpg', category: 'Telugu Hits', album: 'Sita Ramam', language: 'Telugu', year: '2022' },
   { id: 'ZcpmPz2V', title: 'Kalaavathi', artist: 'Sid Sriram, Thaman S', duration: '5:07', seconds: 307, thumbnail: 'https://c.saavncdn.com/250/Sarkaru-Vaari-Paata-Telugu-2022-20220704160854-500x500.jpg', category: 'Telugu Hits', album: 'Sarkaru Vaari Paata', language: 'Telugu', year: '2022' },
+  { id: 'PiXTKfRo', title: 'Radhika', artist: 'Ram Miriyala', duration: '3:15', seconds: 195, thumbnail: 'https://c.saavncdn.com/000/Tillu-Square-Telugu-2023-20240405190047-500x500.jpg', category: 'Telugu Hits', album: 'Tillu Square', language: 'Telugu', year: '2024' },
+  { id: '66E8ZQiS', title: 'Poolamme Pilla', artist: 'GowraHari, Kasarla Shyam', duration: '3:40', seconds: 220, thumbnail: 'https://c.saavncdn.com/807/Poolamme-Pilla-From-HanuMan-Telugu-Telugu-2024-20240620164831-500x500.jpg', category: 'Telugu Hits', album: 'HanuMan', language: 'Telugu', year: '2024' },
   { id: 'gZsIAUmO', title: 'Samajavaragamana', artist: 'Sid Sriram, Thaman S', duration: '3:49', seconds: 229, thumbnail: 'https://c.saavncdn.com/517/Ala-Vaikunthapurramuloo-Telugu-2019-20200116144338-500x500.jpg', category: 'Telugu Hits', album: 'Ala Vaikunthapurramuloo', language: 'Telugu', year: '2020' },
   { id: '-JkPBIE7', title: 'Naatu Naatu', artist: 'Rahul Sipligunj, Kaala Bhairava', duration: '4:35', seconds: 275, thumbnail: 'https://c.saavncdn.com/683/RRR-Telugu-Telugu-2022-20250828171313-500x500.jpg', category: 'Telugu Hits', album: 'RRR', language: 'Telugu', year: '2022' },
+  { id: 'X-Q58gQr', title: 'Dheera Dheera', artist: 'M. M. Keeravani, Nikita Nigam', duration: '4:45', seconds: 285, thumbnail: 'https://c.saavncdn.com/896/Magadheera-2009-500x500.jpg', category: 'Telugu Hits', album: 'Magadheera', language: 'Telugu', year: '2009' },
 
-  // Bollywood Top Hits
-  { id: 'CVeqCCYc', title: 'Tauba Tauba', artist: 'Karan Aujla', duration: '3:30', seconds: 210, thumbnail: 'https://c.saavncdn.com/992/Bad-Newz-Hindi-2024-20250730113701-500x500.jpg', category: 'Bollywood Hits', album: 'Bad Newz', language: 'Hindi', year: '2024' },
-  { id: 'wcsDiSsA', title: 'O Maahi', artist: 'Pritam, Arijit Singh', duration: '3:53', seconds: 233, thumbnail: 'https://c.saavncdn.com/139/Dunki-Hindi-2023-20231220211003-500x500.jpg', category: 'Bollywood Hits', album: 'Dunki', language: 'Hindi', year: '2023' },
-  { id: '4mHUvJ4u', title: 'Satranga', artist: 'Arijit Singh, Shreyas Puranik', duration: '4:31', seconds: 271, thumbnail: 'https://c.saavncdn.com/092/ANIMAL-Hindi-2023-20260724191152-500x500.jpg', category: 'Bollywood Hits', album: 'Animal', language: 'Hindi', year: '2023' },
-  { id: 'faloMmjX', title: 'Chaleya', artist: 'Anirudh Ravichander, Arijit Singh, Shilpa Rao', duration: '3:20', seconds: 200, thumbnail: 'https://c.saavncdn.com/047/Jawan-Hindi-2023-20230921190854-500x500.jpg', category: 'Bollywood Hits', album: 'Jawan', language: 'Hindi', year: '2023' },
-  { id: 'rjkrTnma', title: 'Kesariya', artist: 'Pritam, Arijit Singh', duration: '4:28', seconds: 268, thumbnail: 'https://c.saavncdn.com/871/Brahmastra-Original-Motion-Picture-Soundtrack-Hindi-2022-20221006155213-500x500.jpg', category: 'Bollywood Hits', album: 'Brahmastra', language: 'Hindi', year: '2022' },
-
-  // Global Spotify Top Chartbusters
+  // 🌍 Global & Bollywood Hits
   { id: 'VaNhRJHr', title: 'Die With A Smile', artist: 'Lady Gaga & Bruno Mars', duration: '4:11', seconds: 251, thumbnail: 'https://c.saavncdn.com/060/Die-With-A-Smile-English-2024-20240816103634-500x500.jpg', category: 'Global Pop', album: 'Die With A Smile', language: 'English', year: '2024' },
-  { id: 'BhKP6P-H', title: 'Espresso', artist: 'Sabrina Carpenter', duration: '2:55', seconds: 175, thumbnail: 'https://c.saavncdn.com/111/Espresso-English-2024-20240412064803-500x500.jpg', category: 'Global Pop', album: 'Short n Sweet', language: 'English', year: '2024' },
-  { id: 'JR8ew5Yw', title: 'Birds of a Feather', artist: 'Billie Eilish', duration: '3:30', seconds: 210, thumbnail: 'https://c.saavncdn.com/707/HIT-ME-HARD-AND-SOFT-English-2024-20240517063536-500x500.jpg', category: 'Global Pop', album: 'HIT ME HARD AND SOFT', language: 'English', year: '2024' },
-  { id: 'TcDP-KUl', title: 'Starboy', artist: 'The Weeknd ft. Daft Punk', duration: '3:50', seconds: 230, thumbnail: 'https://c.saavncdn.com/396/The-Highlights-English-2021-20240207045714-500x500.jpg', category: 'Global Pop', album: 'Starboy', language: 'English', year: '2016' },
-  { id: 'fW-Mxsnu', title: 'Blinding Lights', artist: 'The Weeknd', duration: '3:20', seconds: 200, thumbnail: 'https://c.saavncdn.com/077/After-Hours-English-2020-20260804045014-500x500.jpg', category: 'Global Pop', album: 'After Hours', language: 'English', year: '2020' },
-  { id: 'WsHtbZuu', title: 'Faded', artist: 'Alan Walker', duration: '3:32', seconds: 212, thumbnail: 'https://c.saavncdn.com/562/Different-World-English-2018-20181130144209-500x500.jpg', category: 'Global Pop', album: 'Different World', language: 'English', year: '2015' }
+  { id: 'BhKP6P-H', title: 'Espresso', artist: 'Sabrina Carpenter', duration: '2:55', seconds: 175, thumbnail: 'https://c.saavncdn.com/111/Espresso-English-2024-20240412064803-500x500.jpg', category: 'Global Pop', album: 'Short n Sweet', language: 'English', year: '2024' }
 ];
 
 // Helper to resolve videoId or search query to a live audio stream URL
@@ -265,6 +265,17 @@ router.get('/search', async (req, res) => {
     const results = [];
     const seenIds = new Set();
 
+    // 0. Check Curated Master Database for Instant Exact Matches
+    const lowerQ = fullQuery.toLowerCase();
+    for (const s of SPOTIFY_JIOSAAVN_TOP_SONGS) {
+      if (s.title.toLowerCase().includes(lowerQ) || s.artist.toLowerCase().includes(lowerQ) || (s.album && s.album.toLowerCase().includes(lowerQ))) {
+        if (!seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          results.push({ ...s, fullTitle: s.title });
+        }
+      }
+    }
+
     // 1. High Priority: Direct Autocomplete Match (Top exact song match)
     try {
       const autoRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(fullQuery)}&ctx=web6dot0&_format=json`, {
@@ -281,7 +292,7 @@ router.get('/search', async (req, res) => {
             fullTitle: cleanHtml(s.title),
             artist: cleanHtml(s.more_info?.primary_artists || s.description),
             album: cleanHtml(s.album),
-            thumbnail: s.image ? s.image.replace('50x50', '150x150') : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
+            thumbnail: s.image ? s.image.replace('50x50', '500x500').replace('150x150', '500x500') : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
             duration: '3:45',
             seconds: 225,
             language: s.more_info?.language || ''
@@ -306,7 +317,7 @@ router.get('/search', async (req, res) => {
             fullTitle: cleanHtml(s.song),
             artist: cleanHtml(s.singers || s.primary_artists),
             album: cleanHtml(s.album),
-            thumbnail: s.image || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
+            thumbnail: s.image ? s.image.replace('150x150', '500x500').replace('50x50', '500x500') : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop',
             duration: s.duration ? `${Math.floor(s.duration / 60)}:${(s.duration % 60).toString().padStart(2, '0')}` : '3:30',
             seconds: parseInt(s.duration, 10) || 210,
             year: s.year,
