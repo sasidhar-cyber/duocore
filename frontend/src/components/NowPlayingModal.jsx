@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMusic } from '../context/MusicContext';
 import { useRoom } from '../context/RoomContext';
 import api from '../services/api';
+import { downloadTrack, isTrackDownloaded } from '../utils/downloadManager';
 import {
   Play,
   Pause,
@@ -90,14 +91,26 @@ export function NowPlayingModal({ isOpen, onClose }) {
     seekTo(newTime);
   };
 
-  const handleDownload = () => {
-    const downloadUrl = api.getMusicDownloadUrl(currentTrack.id, `${currentTrack.artist} - ${currentTrack.title}`);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `${currentTrack.title}.mp3`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloaded, setIsDownloaded] = useState(false);
+  const [downloadToast, setDownloadToast] = useState('');
+
+  const handleDownload = async () => {
+    if (!currentTrack || isDownloading) return;
+    setIsDownloading(true);
+    setDownloadToast(`⬇ Downloading "${currentTrack.title}"...`);
+
+    try {
+      await downloadTrack(currentTrack);
+      setIsDownloaded(true);
+      setDownloadToast(`✓ "${currentTrack.title}" saved to Downloads!`);
+      setTimeout(() => setDownloadToast(''), 3500);
+    } catch (err) {
+      setDownloadToast(`❌ Download failed: ${err.message || 'Stream error'}`);
+      setTimeout(() => setDownloadToast(''), 3500);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   // Native Web Share API
@@ -447,13 +460,33 @@ export function NowPlayingModal({ isOpen, onClose }) {
           {/* Download MP3 */}
           <button
             onClick={handleDownload}
-            className="p-2 sm:p-2.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-cyan-400 transition-all"
-            title="Download MP3 Audio"
+            disabled={isDownloading}
+            className={`p-2 sm:p-2.5 rounded-xl border transition-all ${
+              isDownloaded
+                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-400'
+                : isDownloading
+                ? 'bg-slate-900 border-cyan-500/50 text-cyan-400 animate-pulse'
+                : 'bg-slate-900 hover:bg-slate-850 border-slate-800 text-slate-400 hover:text-cyan-400'
+            }`}
+            title={isDownloaded ? 'Downloaded to Device' : 'Download MP3 Audio'}
           >
-            <Download className="w-4 h-4" />
+            {isDownloading ? (
+              <Sparkles className="w-4 h-4 animate-spin" />
+            ) : isDownloaded ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>
+
+      {/* Download Toast Feedback */}
+      {downloadToast && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs shadow-xl shadow-emerald-500/30 animate-in fade-in slide-in-from-top-2">
+          {downloadToast}
+        </div>
+      )}
     </div>
   );
 }
