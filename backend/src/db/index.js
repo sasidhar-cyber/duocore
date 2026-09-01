@@ -540,6 +540,18 @@ function initDb() {
   }
 
   console.log('[DB] DUOCORE database ready.');
+
+  // Initialize Persistent Cloud Sync if DATABASE_URL is configured
+  if (process.env.DATABASE_URL) {
+    const { restoreFromCloud, startPeriodicSync } = require('./cloudSync');
+    restoreFromCloud(db)
+      .then(() => {
+        startPeriodicSync(db);
+      })
+      .catch((err) => {
+        console.warn('[CloudSync] Background sync initialization warning:', err.message);
+      });
+  }
 }
 
 module.exports = {

@@ -12,3 +12,5 @@ services:
         value: "*"
       - key: PORT
         value: 10000
+      - key: DATABASE_URL
+        value: postgresql://postgres:9141452138@Sasidhar@db.svjcreqwbtpmemhtkkej.supabase.co:5432/postgres
