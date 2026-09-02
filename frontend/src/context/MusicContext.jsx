@@ -31,6 +31,7 @@ export function MusicProvider({ children }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [isLoop, setIsLoop] = useState(false);
+  const [trackError, setTrackError] = useState(null);
 
   // Favorites (Synced with DB + Local Storage)
   const [favorites, setFavorites] = useState(() => {
@@ -201,7 +202,7 @@ export function MusicProvider({ children }) {
   };
 
   // Play a Track (Mobile & Desktop Rock Solid)
-  const playTrack = async (track, newQueue = null) => {
+  const playTrack = async (track, newQueue = null, autoOpen = true) => {
     if (!track) return;
 
     if (newQueue) {
@@ -214,7 +215,12 @@ export function MusicProvider({ children }) {
     }
 
     setCurrentTrack(track);
+    setTrackError(null);
     setIsBuffering(true);
+
+    if (autoOpen) {
+      setIsNowPlayingOpen(true);
+    }
 
     // Save to Recently Played
     setRecentlyPlayed((prev) => {
@@ -248,6 +254,7 @@ export function MusicProvider({ children }) {
             .then(() => {
               setIsPlaying(true);
               setIsBuffering(false);
+              setTrackError(null);
             })
             .catch((err) => {
               console.warn('[Mobile Autoplay]:', err.message);
@@ -258,6 +265,14 @@ export function MusicProvider({ children }) {
     } catch (err) {
       console.error('[Music Stream Error]:', err);
       setIsBuffering(false);
+      setIsPlaying(false);
+      setTrackError('Unable to play this track. Please check connection or tap Retry.');
+    }
+  };
+
+  const retryPlayback = () => {
+    if (currentTrack) {
+      playTrack(currentTrack, queue, false);
     }
   };
 
@@ -563,6 +578,9 @@ export function MusicProvider({ children }) {
         lyricsFontSize,
         lyricsOffsetMs,
         activeEqPreset,
+        trackError,
+        setTrackError,
+        retryPlayback,
         sleepTimerOption,
         sleepTimeRemaining,
         activeTheme,

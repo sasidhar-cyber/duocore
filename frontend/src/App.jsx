@@ -122,55 +122,6 @@ function AppContent() {
     return <AuthPage onAuthenticated={() => {}} />;
   }
 
-  // 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT
-  if (activeTab === 'chat') {
-    return (
-      <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-0 sm:p-4 select-none relative overflow-hidden">
-        <NetworkStatusBanner />
-
-        <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">
-          <ChatView
-            onBack={() => setActiveTab('music')}
-            onOpenInvite={() => setInviteModalOpen(true)}
-          />
-        </div>
-
-        <InviteModal
-          isOpen={inviteModalOpen}
-          onClose={() => setInviteModalOpen(false)}
-        />
-
-        {/* Global Incoming WebRTC Ringing Modal */}
-        {incomingCall && (
-          <IncomingCallModal
-            incomingCall={incomingCall}
-            onAccept={acceptIncomingCall}
-            onDecline={declineIncomingCall}
-          />
-        )}
-
-        {/* Global Video Call Modal */}
-        {activeCallModal === 'video' && (
-          <VideoCallModal
-            isOpen={true}
-            isInitiator={isCallInitiator}
-            onClose={endActiveCall}
-          />
-        )}
-
-        {/* Global Audio Call Modal */}
-        {activeCallModal === 'audio' && (
-          <AudioCallModal
-            isOpen={true}
-            isInitiator={isCallInitiator}
-            onClose={endActiveCall}
-          />
-        )}
-      </div>
-    );
-  }
-
-  // 🎵 MUSIC TAB: 100% INNOCENT PURE MUSIC STREAMING HOME
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-white relative">
       {/* Offline / Online Network Indicator */}
@@ -179,18 +130,38 @@ function AppContent() {
       {/* PWA Mobile Install Prompt */}
       <PWAInstallPrompt />
 
-      {/* Top Navbar with Stealth Triple-Tap Logo Trigger */}
-      <Navbar
-        onOpenAuth={() => setAuthOpen(true)}
-        onOpenPinPrompt={() => setIsPinPromptOpen(true)}
-      />
+      {/* 💬 CHAT TAB: FULL SCREEN 1v1 DUO CHAT */}
+      {activeTab === 'chat' ? (
+        <div className="h-[100dvh] w-full bg-slate-950 text-slate-100 flex flex-col p-0 sm:p-4 select-none relative overflow-hidden">
+          <div className="flex-1 min-h-0 max-w-6xl w-full mx-auto flex flex-col">
+            <ChatView
+              onBack={() => setActiveTab('music')}
+              onOpenInvite={() => setInviteModalOpen(true)}
+            />
+          </div>
 
-      <main className="flex-1 pb-20">
-        <MusicHomePage onOpenPinPrompt={() => setIsPinPromptOpen(true)} />
-      </main>
+          <InviteModal
+            isOpen={inviteModalOpen}
+            onClose={() => setInviteModalOpen(false)}
+          />
+        </div>
+      ) : (
+        /* 🎵 MUSIC TAB: 100% INNOCENT PURE MUSIC STREAMING HOME */
+        <>
+          {/* Top Navbar with Stealth Triple-Tap Logo Trigger */}
+          <Navbar
+            onOpenAuth={() => setAuthOpen(true)}
+            onOpenPinPrompt={() => setIsPinPromptOpen(true)}
+          />
 
-      {/* Global Bottom Sticky Music Player */}
-      <MusicPlayerBar />
+          <main className="flex-1 pb-24">
+            <MusicHomePage onOpenPinPrompt={() => setIsPinPromptOpen(true)} />
+          </main>
+
+          {/* Global Bottom Sticky Music Player */}
+          <MusicPlayerBar />
+        </>
+      )}
 
       {/* Full Screen Now Playing View */}
       <NowPlayingModal

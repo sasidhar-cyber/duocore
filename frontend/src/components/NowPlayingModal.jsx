@@ -63,6 +63,12 @@ export function NowPlayingModal({ isOpen, onClose }) {
     activeEqPreset,
     applyEqPreset,
     EQ_PRESETS,
+    trackError,
+    retryPlayback,
+    volume,
+    handleVolumeChange,
+    isMuted,
+    toggleMute,
     sleepTimerOption,
     sleepTimeRemaining,
     setSleepTimer,
@@ -331,6 +337,27 @@ export function NowPlayingModal({ isOpen, onClose }) {
           </div>
         </div>
 
+        {/* Playback Error Alert State */}
+        {trackError && (
+          <div className="w-full p-2.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-red-200 text-xs flex items-center justify-between gap-2 animate-in fade-in">
+            <span className="truncate">{trackError}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={retryPlayback}
+                className="px-2.5 py-1 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-[11px] transition-all"
+              >
+                Retry
+              </button>
+              <button
+                onClick={nextTrack}
+                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] transition-all"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Controls (-10s, Prev, Play/Pause, Next, +10s) */}
         <div className="flex items-center justify-center gap-3 sm:gap-6 w-full">
           <button
@@ -378,6 +405,26 @@ export function NowPlayingModal({ isOpen, onClose }) {
           >
             <RotateCw className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
+        </div>
+
+        {/* Volume Slider (Desktop & Supported Devices) */}
+        <div className="hidden sm:flex items-center justify-center gap-2 w-48 mx-auto pt-1">
+          <button onClick={toggleMute} className="text-slate-400 hover:text-white transition-all">
+            {isMuted || volume === 0 ? (
+              <VolumeX className="w-4 h-4 text-red-400" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={isMuted ? 0 : volume}
+            onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+            className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+          />
         </div>
       </div>
 
