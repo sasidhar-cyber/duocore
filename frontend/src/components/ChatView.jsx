@@ -201,6 +201,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   // Dynamic visual viewport height tracker for Android & iOS soft keyboards
   const [viewportHeight, setViewportHeight] = useState(null);
+  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
@@ -215,6 +216,7 @@ export function ChatView({ onBack, onOpenInvite }) {
     return () => {
       window.visualViewport.removeEventListener('resize', handleResize);
       window.visualViewport.removeEventListener('scroll', handleResize);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, []);
 
@@ -399,10 +401,30 @@ export function ChatView({ onBack, onOpenInvite }) {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  // Debounced input change for typing indicator
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setMessageText(val);
+
+    if (val.length > 0) {
+      sendTyping(true, 'normal');
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        sendTyping(false, 'normal');
+      }, 2500);
+    } else {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      sendTyping(false, 'normal');
+    }
+  };
+
   // Send Message
   const handleSendMessage = (e) => {
     e?.preventDefault();
     if (!messageText.trim()) return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    sendTyping(false, 'normal');
 
     sendMessage({
       text: messageText.trim(),
@@ -412,7 +434,6 @@ export function ChatView({ onBack, onOpenInvite }) {
 
     setMessageText('');
     setReplyTo(null);
-    sendTyping(false, 'normal');
     try { playSound('send'); } catch {}
   };
 
@@ -649,8 +670,8 @@ export function ChatView({ onBack, onOpenInvite }) {
 
   return (
     <div
-      style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
-      className={`h-[100dvh] w-full flex flex-col ${currentThemeObj.bg} rounded-none sm:rounded-3xl border-0 sm:border border-blue-500/30 overflow-hidden shadow-2xl relative select-none`}
+      style={viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
+      className={`h-full max-h-[100dvh] w-full flex flex-col ${currentThemeObj.bg} rounded-none sm:rounded-3xl border-0 sm:border border-blue-500/30 overflow-hidden shadow-2xl relative select-none`}
     >
       {/* 1. HEADER (Blue + Pink Accent) */}
       <div className="px-3 py-2.5 sm:p-4 bg-slate-900/95 border-b border-blue-500/20 flex items-center justify-between gap-2 shrink-0 z-20">
@@ -709,7 +730,10 @@ export function ChatView({ onBack, onOpenInvite }) {
                 partnerTyping?.normal ? (
                   <span className="text-pink-400 font-bold animate-pulse">typing...</span>
                 ) : otherPartner?.is_online ? (
-                  <span className="text-pink-400 font-medium">Online</span>
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Active now
+                  </span>
                 ) : (
                   <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
                 )
@@ -1295,6 +1319,23 @@ export function ChatView({ onBack, onOpenInvite }) {
             </React.Fragment>
           );
         })}
+        {/* Real-time In-Stream Partner Typing Bubble (Left / Receiver side) */}
+        {partnerTyping?.normal && (
+          <div className="w-full flex items-end gap-1.5 justify-start animate-in fade-in slide-in-from-bottom-1 duration-150 my-1">
+            <img
+              src={partnerAvatar}
+              alt={otherPartner?.username || 'Partner'}
+              className="w-6 h-6 rounded-xl object-cover shrink-0 mb-0.5 ring-1 ring-slate-700"
+            />
+            <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-xs bg-slate-900/90 border border-blue-500/25 shadow-sm text-slate-100 flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-pink-300 mr-1">{otherPartner?.username || 'Partner'} is typing</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-bounce" />
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -1383,10 +1424,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                 type="text"
                 placeholder="Type a message..."
                 value={messageText}
-                onChange={(e) => {
-                  setMessageText(e.target.value);
-                  sendTyping(e.target.value.length > 0, 'normal');
-                }}
+                onChange={handleInputChange}
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-full px-4 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-pink-500/60 focus:ring-1 focus:ring-blue-500/40 shadow-inner min-w-0"
               />
 

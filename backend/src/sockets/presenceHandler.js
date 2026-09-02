@@ -117,6 +117,13 @@ function setupPresenceHandler(io, socket) {
       timestamp: now
     });
 
+    io.to(roomId).emit('presence:user_status_change', {
+      userId: socket.user.id,
+      username: socket.user.username,
+      isOnline: true,
+      lastSeen: 'now'
+    });
+
     try {
       const members = db.prepare('SELECT user_id, last_seen FROM room_members WHERE room_id = ?').all(roomId);
       const statuses = members.map(m => ({
@@ -134,6 +141,12 @@ function setupPresenceHandler(io, socket) {
     socket.leave(roomId);
     const now = new Date().toISOString();
     io.to(roomId).emit('room:partner_left', {
+      userId: socket.user.id,
+      username: socket.user.username,
+      isOnline: false,
+      lastSeen: now
+    });
+    io.to(roomId).emit('presence:user_status_change', {
       userId: socket.user.id,
       username: socket.user.username,
       isOnline: false,

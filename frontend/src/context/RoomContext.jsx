@@ -131,6 +131,45 @@ export function RoomProvider({ children }) {
     return () => clearInterval(interval);
   }, [activeChannel, hasPartner]);
 
+  const typingResetTimerRef = useRef(null);
+
+  // Handle App Foreground / Visibility Change & Network Online on mobile
+  useEffect(() => {
+    const handleForeground = () => {
+      if (document.visibilityState === 'visible') {
+        const s = getSocket();
+        if (s && !s.connected) {
+          s.connect();
+        }
+        if (currentRoomIdRef.current && s && s.connected) {
+          s.emit('room:join', { roomId: currentRoomIdRef.current });
+        }
+        refreshPartnerState();
+      }
+    };
+
+    const handleOnline = () => {
+      const s = getSocket();
+      if (s) {
+        if (!s.connected) s.connect();
+        if (currentRoomIdRef.current) {
+          s.emit('room:join', { roomId: currentRoomIdRef.current });
+        }
+      }
+      refreshPartnerState();
+    };
+
+    document.addEventListener('visibilitychange', handleForeground);
+    window.addEventListener('focus', handleForeground);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleForeground);
+      window.removeEventListener('focus', handleForeground);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [refreshPartnerState]);
+
   // Socket event listeners
   useEffect(() => {
     const s = getSocket();
@@ -163,10 +202,21 @@ export function RoomProvider({ children }) {
     };
 
     const handlePartnerTyping = ({ channel = 'normal', isTyping }) => {
+      const ch = channel || 'normal';
       setPartnerTyping((prev) => ({
         ...prev,
-        [channel]: isTyping
+        [ch]: !!isTyping
       }));
+
+      if (typingResetTimerRef.current) clearTimeout(typingResetTimerRef.current);
+      if (isTyping) {
+        typingResetTimerRef.current = setTimeout(() => {
+          setPartnerTyping((prev) => ({
+            ...prev,
+            [ch]: false
+          }));
+        }, 4000);
+      }
     };
 
     const handlePartnerStatus = (data) => {
@@ -409,18 +459,17 @@ export function RoomProvider({ children }) {
         file_url: fileUrl,
         file_type: fileType
       });
-      // The REST route broadcasts the saved message to Socket.IO. Keeping one
-      // write path prevents duplicate messages and unnecessary re-renders.
-      if (res.data) {
+      const savedMsg = res.message || res.data;
+      if (savedMsg) {
         if (channel === 'private') {
           setPrivateMessages((prev) => {
-            if (prev.some((m) => m.id === res.data.id)) return prev;
-            return [...prev, res.data];
+            if (prev.some((m) => m.id === savedMsg.id)) return prev;
+            return [...prev, savedMsg];
           });
         } else {
           setNormalMessages((prev) => {
-            if (prev.some((m) => m.id === res.data.id)) return prev;
-            return [...prev, res.data];
+            if (prev.some((m) => m.id === savedMsg.id)) return prev;
+            return [...prev, savedMsg];
           });
         }
       }
@@ -429,11 +478,20 @@ export function RoomProvider({ children }) {
     }
   };
 
-  const sendTyping = (channel = 'normal', isTyping = true) => {
-    if (!roomData) return;
+  const sendTyping = (arg1 = true, arg2 = 'normal') => {
+    if (!roomData?.id) return;
+    let isTyping = true;
+    let channel = 'normal';
+    if (typeof arg1 === 'boolean') {
+      isTyping = arg1;
+      channel = typeof arg2 === 'string' ? arg2 : 'normal';
+    } else if (typeof arg1 === 'string') {
+      channel = arg1;
+      isTyping = typeof arg2 === 'boolean' ? arg2 : true;
+    }
     const s = getSocket();
     if (s && s.connected) {
-      s.emit('chat:typing', { roomId: roomData.id, channel, isTyping });
+      s.emit('chat:typing', { roomId: roomData.id, channel: channel || 'normal', isTyping: !!isTyping });
     }
   };
 
