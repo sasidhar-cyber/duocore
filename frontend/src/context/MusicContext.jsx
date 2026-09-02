@@ -202,7 +202,7 @@ export function MusicProvider({ children }) {
   };
 
   // Play a Track (Mobile & Desktop Rock Solid)
-  const playTrack = async (track, newQueue = null, autoOpen = true) => {
+  const playTrack = async (track, newQueue = null, autoOpen = false) => {
     if (!track) return;
 
     if (newQueue) {

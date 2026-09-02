@@ -639,7 +639,11 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
                   <h4 className="text-sm font-black text-white">DuoCore v1.0.0</h4>
                   <p className="text-[10px] text-emerald-400 font-mono">1v1 Stealth Duo Chat & High-Fidelity Music</p>
                 </div>
-                <p className="text-[11px] text-slate-400 pt-1">
+                <div className="py-2.5 my-2 border-y border-slate-800/80">
+                  <span className="text-[10px] uppercase font-mono tracking-widest text-slate-400 block font-bold">Created by</span>
+                  <span className="text-xs sm:text-sm font-black text-emerald-400 block mt-0.5 tracking-wide">C Sasidhar Reddy</span>
+                </div>
+                <p className="text-[11px] text-slate-400 pt-0.5">
                   Built for seamless music sharing, crystal-clear WebRTC calling, and private 1v1 conversations.
                 </p>
               </div>

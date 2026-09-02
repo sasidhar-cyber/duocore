@@ -62,7 +62,7 @@ export default {
   getTrendingMusic: () => apiRequest('/music/trending'),
   getMusicStream: (videoId) => apiRequest(`/music/stream/${videoId}`),
   getMusicLyrics: (track, artist) => apiRequest(`/music/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist || '')}`),
-  getMusicDownloadUrl: (videoId, title) => `/api/music/download/${encodeURIComponent(videoId)}?title=${encodeURIComponent(title || 'song')}`,
+  getMusicDownloadUrl: (videoId, title) => `${API_BASE}/music/download/${encodeURIComponent(videoId)}?title=${encodeURIComponent(title || 'song')}`,
   getAlbums: (q = '') => apiRequest(`/music/albums${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   getAlbumDetails: (id) => apiRequest(`/music/albums/${encodeURIComponent(id)}`),
   getArtists: (q = '') => apiRequest(`/music/artists${q ? `?q=${encodeURIComponent(q)}` : ''}`),

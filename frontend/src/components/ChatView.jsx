@@ -644,8 +644,8 @@ export function ChatView({ onBack, onOpenInvite }) {
       const el = document.getElementById(`msg-${target.id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-2', 'ring-yellow-400');
-        setTimeout(() => el.classList.remove('ring-2', 'ring-yellow-400'), 1500);
+        el.classList.add('ring-2', 'ring-pink-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-pink-400'), 1500);
       }
     }
   };
@@ -659,8 +659,8 @@ export function ChatView({ onBack, onOpenInvite }) {
       const el = document.getElementById(`msg-${target.id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-2', 'ring-yellow-400');
-        setTimeout(() => el.classList.remove('ring-2', 'ring-yellow-400'), 1500);
+        el.classList.add('ring-2', 'ring-pink-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-pink-400'), 1500);
       }
     }
   };
