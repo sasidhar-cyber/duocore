@@ -10,6 +10,22 @@ const getApiBase = () => {
 
 const API_BASE = getApiBase();
 
+export function resolveStreamUrl(streamUrl) {
+  if (!streamUrl) return '';
+  if (streamUrl.startsWith('http://') || streamUrl.startsWith('https://') || streamUrl.startsWith('data:') || streamUrl.startsWith('blob:')) {
+    return streamUrl;
+  }
+  if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
+    try {
+      const origin = new URL(API_BASE).origin;
+      return `${origin}${streamUrl.startsWith('/') ? '' : '/'}${streamUrl}`;
+    } catch {
+      return streamUrl;
+    }
+  }
+  return streamUrl;
+}
+
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('duocore_token');
   const isFormData = options.body instanceof FormData;

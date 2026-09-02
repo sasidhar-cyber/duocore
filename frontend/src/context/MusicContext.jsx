@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
-import api from '../services/api';
+import api, { resolveStreamUrl } from '../services/api';
 
 const MusicContext = createContext();
 
@@ -243,9 +243,10 @@ export function MusicProvider({ children }) {
     try {
       const res = await api.getMusicStream(track.id);
       if (!res.streamUrl) throw new Error('Stream URL unavailable');
+      const resolvedUrl = resolveStreamUrl(res.streamUrl);
 
       if (audioRef.current) {
-        audioRef.current.src = res.streamUrl;
+        audioRef.current.src = resolvedUrl;
         audioRef.current.load();
 
         const playPromise = audioRef.current.play();

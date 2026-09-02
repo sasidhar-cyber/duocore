@@ -336,11 +336,23 @@ async function resolveAudioStreamUrl(idOrQuery) {
     console.warn('[Music Stream] Strategy 2 (JioSaavn Search) fallback:', e.message);
   }
 
-  // Strategy 3: yt-dlp with tvhtml5 and android_creator clients
+  // Strategy 3: yt-dlp Audio Stream Extraction
   try {
-    const ytdlpCommand = fs.existsSync('/usr/local/bin/yt-dlp')
-      ? '/usr/local/bin/yt-dlp'
-      : (fs.existsSync(LOCAL_YTDLP) ? `"${LOCAL_YTDLP}"` : 'yt-dlp');
+    const candidates = [
+      '/home/sasidhar/.local/bin/yt-dlp',
+      '/usr/local/bin/yt-dlp',
+      '/usr/bin/yt-dlp',
+      LOCAL_YTDLP,
+      'yt-dlp'
+    ];
+    let ytdlpCommand = 'yt-dlp';
+    for (const c of candidates) {
+      if (c && fs.existsSync(c)) {
+        ytdlpCommand = `"${c}"`;
+        break;
+      }
+    }
+
     let target = idOrQuery;
     if (idOrQuery.startsWith('query:')) {
       const q = idOrQuery.replace('query:', '');
@@ -354,7 +366,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
       target = `ytsearch1:${songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery}`;
     }
 
-    const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=tvhtml5,android_creator" --geo-bypass --no-warnings "${target}"`;
+    const cmd = `${ytdlpCommand} -g -f "ba/b" --geo-bypass --no-warnings "${target}"`;
 
     const stdout = await new Promise((resolve, reject) => {
       exec(cmd, { timeout: 15000 }, (err, out) => {
