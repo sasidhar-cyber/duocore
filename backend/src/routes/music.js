@@ -282,7 +282,7 @@ async function resolveAudioStreamUrl(idOrQuery) {
   try {
     const detailsRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(videoId)}&ctx=web6dot0&_format=json`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 4000
+      timeout: 8000
     });
     const songData = detailsRes.data?.songs?.[0] || detailsRes.data?.[videoId];
     const fullUrl = decryptSaavnMediaUrl(songData?.more_info?.encrypted_media_url || songData?.encrypted_media_url);
@@ -314,13 +314,13 @@ async function resolveAudioStreamUrl(idOrQuery) {
 
     const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_marker=0&query=${encodeURIComponent(searchQuery)}&ctx=web6dot0&_format=json`, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 4000
+      timeout: 8000
     });
     const song = searchRes.data?.songs?.data?.[0];
     if (song && song.id) {
       const detailsRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${song.id}&ctx=web6dot0&_format=json`, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 4000
+        timeout: 8000
       });
       const songData = detailsRes.data?.songs?.[0] || detailsRes.data?.[song.id];
       const fullUrl = decryptSaavnMediaUrl(songData?.more_info?.encrypted_media_url || songData?.encrypted_media_url);
@@ -345,8 +345,13 @@ async function resolveAudioStreamUrl(idOrQuery) {
     if (idOrQuery.startsWith('query:')) {
       const q = idOrQuery.replace('query:', '');
       target = `ytsearch1:${q}`;
-    } else if (!idOrQuery.startsWith('http')) {
+    } else if (idOrQuery.startsWith('http')) {
+      target = idOrQuery;
+    } else if (/^[a-zA-Z0-9_-]{11}$/.test(idOrQuery)) {
       target = `https://www.youtube.com/watch?v=${idOrQuery}`;
+    } else {
+      const songMeta = SPOTIFY_JIOSAAVN_TOP_SONGS.find((s) => s.id === idOrQuery);
+      target = `ytsearch1:${songMeta ? `${songMeta.title} ${songMeta.artist}` : idOrQuery}`;
     }
 
     const cmd = `${ytdlpCommand} -g -f "ba/b" --extractor-args "youtube:player_client=tvhtml5,android_creator" --geo-bypass --no-warnings "${target}"`;

@@ -14,9 +14,16 @@ function getAudioContext() {
 
 export function playSound(type = 'click') {
   try {
-    // Sound effects muted by default per user preference ("sounds ani appe only notification ravali")
-    const soundEnabled = localStorage.getItem('duocore_sound_enabled') === 'true';
-    if (!soundEnabled) return;
+    if (type === 'message') {
+      const msgAllowed = localStorage.getItem('duocore_notif_messages') !== 'false';
+      if (!msgAllowed) return;
+    } else if (type === 'call') {
+      const callsAllowed = localStorage.getItem('duocore_notif_calls') !== 'false';
+      if (!callsAllowed) return;
+    } else {
+      const soundEnabled = localStorage.getItem('duocore_sound_enabled') !== 'false';
+      if (!soundEnabled) return;
+    }
 
     const ctx = getAudioContext();
     if (!ctx) return;

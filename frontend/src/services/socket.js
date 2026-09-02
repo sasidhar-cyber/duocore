@@ -2,7 +2,17 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 let currentToken = null;
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || '/';
+const getSocketUrl = () => {
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  if (typeof window !== 'undefined') {
+    if (window.location.protocol === 'capacitor:' || (window.location.hostname === 'localhost' && window.location.port === '')) {
+      return 'https://soundwave-ns7b.onrender.com';
+    }
+  }
+  return '/';
+};
+
+const SOCKET_URL = getSocketUrl();
 
 export function getSocket() {
   const token = localStorage.getItem('duocore_token');

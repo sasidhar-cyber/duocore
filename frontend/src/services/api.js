@@ -1,4 +1,14 @@
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE;
+  if (typeof window !== 'undefined') {
+    if (window.location.protocol === 'capacitor:' || (window.location.hostname === 'localhost' && window.location.port === '')) {
+      return 'https://soundwave-ns7b.onrender.com/api';
+    }
+  }
+  return '/api';
+};
+
+const API_BASE = getApiBase();
 
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('duocore_token');

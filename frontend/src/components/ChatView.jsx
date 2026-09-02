@@ -51,10 +51,27 @@ import { playSound } from '../utils/soundEffects';
 import { showBrowserNotification } from '../utils/notificationService';
 
 const CHAT_THEMES = [
-  { id: 'default', name: 'Emerald Wave (Default)', bg: 'bg-slate-950/95', bubbleMe: 'bg-emerald-600', bubbleOther: 'bg-slate-900' },
-  { id: 'amoled', name: 'Pure AMOLED Black', bg: 'bg-black', bubbleMe: 'bg-slate-800', bubbleOther: 'bg-zinc-900' },
-  { id: 'neon', name: 'Neon Cyber Glow', bg: 'bg-slate-950', bubbleMe: 'bg-pink-600', bubbleOther: 'bg-slate-900' },
-  { id: 'minimal', name: 'Minimal Slate', bg: 'bg-slate-900', bubbleMe: 'bg-cyan-600', bubbleOther: 'bg-slate-800' }
+  {
+    id: 'default',
+    name: 'Blue + Pink Gradient (Default)',
+    bg: 'bg-slate-950/95',
+    bubbleMe: 'bg-gradient-to-r from-blue-600 via-indigo-600 to-pink-600 shadow-md shadow-pink-500/20 text-white',
+    bubbleOther: 'bg-slate-900/90 border border-blue-500/25 shadow-sm text-slate-100'
+  },
+  {
+    id: 'deep_blue_pink',
+    name: 'Deep Midnight Pink',
+    bg: 'bg-[#0b0f19]',
+    bubbleMe: 'bg-gradient-to-r from-blue-500 to-pink-500 text-white shadow-lg shadow-pink-500/30',
+    bubbleOther: 'bg-[#131b2e] border border-pink-500/20 text-slate-100'
+  },
+  {
+    id: 'amoled',
+    name: 'Pure AMOLED Black',
+    bg: 'bg-black',
+    bubbleMe: 'bg-gradient-to-r from-blue-600 to-pink-600 text-white',
+    bubbleOther: 'bg-zinc-900 border border-zinc-800 text-slate-100'
+  }
 ];
 
 export function getMediaUrl(url) {
@@ -633,10 +650,10 @@ export function ChatView({ onBack, onOpenInvite }) {
   return (
     <div
       style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
-      className={`h-[100dvh] w-full flex flex-col ${currentThemeObj.bg} rounded-none sm:rounded-3xl border-0 sm:border border-emerald-500/30 overflow-hidden shadow-2xl relative select-none`}
+      className={`h-[100dvh] w-full flex flex-col ${currentThemeObj.bg} rounded-none sm:rounded-3xl border-0 sm:border border-blue-500/30 overflow-hidden shadow-2xl relative select-none`}
     >
-      {/* 1. HEADER */}
-      <div className="px-3 py-2.5 sm:p-4 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0 z-20">
+      {/* 1. HEADER (Blue + Pink Accent) */}
+      <div className="px-3 py-2.5 sm:p-4 bg-slate-900/95 border-b border-blue-500/20 flex items-center justify-between gap-2 shrink-0 z-20">
         <div
           onClick={() => {
             if (hasPartner) setPartnerInfoOpen(true);
@@ -650,10 +667,10 @@ export function ChatView({ onBack, onOpenInvite }) {
                 e.stopPropagation();
                 onBack();
               }}
-              className="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all mr-0.5 shrink-0"
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-white transition-all mr-0.5 shrink-0"
               title="Back to Music Player"
             >
-              <ArrowLeft className="w-4 h-4 text-emerald-400" />
+              <ArrowLeft className="w-4 h-4 text-blue-400" />
             </button>
           )}
 
@@ -663,16 +680,16 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <Avatar
                   src={otherPartner?.avatar_url}
                   name={otherPartner?.username || 'Partner'}
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl ring-2 ring-emerald-500/40"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl ring-2 ring-pink-500/50"
                 />
                 <div
                   className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border-2 border-slate-950 ${
-                    otherPartner?.is_online ? 'bg-emerald-400' : 'bg-slate-600'
+                    otherPartner?.is_online ? 'bg-pink-400 shadow-sm shadow-pink-400/80' : 'bg-slate-600'
                   }`}
                 />
               </>
             ) : (
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-lg">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-blue-500/20 to-pink-500/20 border border-pink-500/40 flex items-center justify-center text-lg">
                 🎮
               </div>
             )}
@@ -682,7 +699,7 @@ export function ChatView({ onBack, onOpenInvite }) {
             <h4 className="text-xs sm:text-sm font-black text-white truncate flex items-center gap-1.5">
               <span>{hasPartner ? (otherPartner?.username || 'Duo Partner') : '1v1 Duo Chat Lobby'}</span>
               {roomData?.code && (
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-gradient-to-r from-blue-500/20 to-pink-500/20 text-pink-300 font-bold border border-pink-500/30">
                   {roomData.code}
                 </span>
               )}
@@ -690,14 +707,14 @@ export function ChatView({ onBack, onOpenInvite }) {
             <p className="text-[10px] font-mono truncate">
               {hasPartner ? (
                 partnerTyping?.normal ? (
-                  <span className="text-emerald-400 font-bold animate-pulse">typing...</span>
+                  <span className="text-pink-400 font-bold animate-pulse">typing...</span>
                 ) : otherPartner?.is_online ? (
-                  <span className="text-emerald-400 font-medium">Online</span>
+                  <span className="text-pink-400 font-medium">Online</span>
                 ) : (
                   <span className="text-slate-400">{formatLastSeen(otherPartner?.last_seen)}</span>
                 )
               ) : (
-                <span className="text-yellow-400 font-bold">⚠️ Unpaired • Enter Room Code</span>
+                <span className="text-pink-400 font-bold">⚠️ Unpaired • Enter Room Code</span>
               )}
             </p>
           </div>
@@ -706,10 +723,10 @@ export function ChatView({ onBack, onOpenInvite }) {
         {/* Header Action Controls */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {currentTrack && (
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-emerald-500/30 text-emerald-400 max-w-[160px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-850 border border-pink-500/30 text-pink-300 max-w-[160px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-ping shrink-0" />
               <span className="text-[10px] font-bold truncate text-slate-200">{currentTrack.title}</span>
-              <button onClick={togglePlay} className="p-0.5 rounded-lg text-emerald-300 text-xs">
+              <button onClick={togglePlay} className="p-0.5 rounded-lg text-pink-300 text-xs">
                 {isPlaying ? '⏸' : '▶'}
               </button>
             </div>
@@ -717,7 +734,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
           <button
             onClick={() => setSearchOpen(!searchOpen)}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-transform active:scale-95"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-pink-300 border border-slate-700 transition-transform active:scale-95"
             title="Search chat"
           >
             <Search className="w-4 h-4" />
@@ -726,7 +743,7 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             onClick={startAudioCall}
             disabled={!hasPartner}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
             title="Audio Call"
           >
             <Phone className="w-4 h-4" />
@@ -735,7 +752,7 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             onClick={startVideoCall}
             disabled={!hasPartner}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-pink-500/20 text-slate-300 hover:text-pink-400 border border-slate-700 transition-transform active:scale-95 disabled:opacity-40"
             title="HD Video Call"
           >
             <Video className="w-4 h-4" />
@@ -1133,17 +1150,17 @@ export function ChatView({ onBack, onOpenInvite }) {
                           const el = document.getElementById(`msg-${targetId}`);
                           if (el) {
                             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            el.classList.add('ring-2', 'ring-emerald-400', 'scale-[1.02]');
-                            setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'scale-[1.02]'), 1500);
+                            el.classList.add('ring-2', 'ring-pink-400', 'scale-[1.02]');
+                            setTimeout(() => el.classList.remove('ring-2', 'ring-pink-400', 'scale-[1.02]'), 1500);
                           }
                         }
                       }}
-                      className="p-1.5 rounded-xl bg-black/30 border-l-3 border-emerald-400 text-xs text-slate-200 mb-1 cursor-pointer hover:bg-black/40 transition-colors"
+                      className="p-1.5 rounded-xl bg-black/35 border-l-3 border-pink-400 text-xs text-slate-200 mb-1 cursor-pointer hover:bg-black/50 transition-colors"
                     >
-                      <span className="font-bold text-[9px] text-emerald-300 block">
+                      <span className="font-bold text-[9px] text-pink-300 block">
                         {msg.reply_to_username || msg.replyTo?.username || 'Partner'}
                       </span>
-                      <p className="truncate text-[10px] text-slate-300">
+                      <p className="truncate text-[10px] text-slate-200">
                         {msg.reply_to_text || msg.replyTo?.text}
                       </p>
                     </div>
@@ -1151,7 +1168,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
                   {/* Song Card Preview */}
                   {meta?.song && (
-                    <div className="p-2 rounded-xl bg-black/40 border border-emerald-500/30 flex items-center justify-between gap-2 max-w-xs">
+                    <div className="p-2 rounded-xl bg-black/40 border border-pink-500/30 flex items-center justify-between gap-2 max-w-xs">
                       <img
                         src={meta.song.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100'}
                         alt={meta.song.title}
@@ -1166,7 +1183,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                           playTrack(meta.song);
                           openNowPlaying();
                         }}
-                        className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shrink-0 transition-transform active:scale-95"
+                        className="p-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-400 hover:to-pink-400 text-white font-bold shrink-0 transition-transform active:scale-95 shadow-md shadow-pink-500/20"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
                       </button>
@@ -1285,7 +1302,7 @@ export function ChatView({ onBack, onOpenInvite }) {
       {showScrollBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute right-3.5 bottom-16 z-30 p-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all animate-in fade-in zoom-in-95 active:scale-90"
+          className="absolute right-3.5 bottom-16 z-30 p-2.5 rounded-full bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-400 hover:to-pink-400 text-white shadow-xl shadow-pink-500/30 transition-all animate-in fade-in zoom-in-95 active:scale-90"
           title="Scroll to bottom"
         >
           <ChevronDown className="w-4 h-4 stroke-[3]" />
@@ -1294,7 +1311,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* Uploading Progress Toast */}
       {uploadingMedia && (
-        <div className="px-4 py-1.5 bg-slate-900 border-t border-emerald-500/30 flex items-center justify-center gap-2 text-xs font-bold text-emerald-400 animate-pulse shrink-0">
+        <div className="px-4 py-1.5 bg-slate-900 border-t border-pink-500/30 flex items-center justify-center gap-2 text-xs font-bold text-pink-400 animate-pulse shrink-0">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           <span>Uploading attachment...</span>
         </div>
@@ -1302,15 +1319,15 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* Reply Preview Bar */}
       {replyTo && (
-        <div className="px-3 py-1.5 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs shrink-0 animate-in slide-in-from-bottom-2 z-10">
+        <div className="px-3 py-1.5 bg-slate-900/95 border-t border-blue-500/20 flex items-center justify-between text-xs shrink-0 animate-in slide-in-from-bottom-2 z-10">
           <div className="flex items-center gap-2 min-w-0">
-            <CornerDownRight className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <CornerDownRight className="w-3.5 h-3.5 text-pink-400 shrink-0" />
             <div className="min-w-0">
-              <span className="font-bold text-emerald-400 text-[9px]">{replyTo.username || 'Partner'}</span>
+              <span className="font-bold text-pink-400 text-[9px]">{replyTo.username || 'Partner'}</span>
               <p className="text-slate-300 truncate text-[10px]">{replyTo.text}</p>
             </div>
           </div>
-          <button onClick={() => setReplyTo(null)} className="p-1 text-slate-400 hover:text-white">
+          <button onClick={() => setReplyTo(null)} className="p-1 text-slate-400 hover:text-pink-400">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1318,7 +1335,7 @@ export function ChatView({ onBack, onOpenInvite }) {
 
       {/* 3. CLEAN BOTTOM COMPOSER (Organized single-row mobile layout) */}
       {hasPartner && (
-        <div className="p-2 sm:p-2.5 bg-slate-900/95 border-t border-slate-800 flex items-center gap-1.5 sm:gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="p-2 sm:p-2.5 bg-slate-900/95 border-t border-blue-500/20 flex items-center gap-1.5 sm:gap-2 shrink-0 z-30 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <input
             type="file"
             ref={fileInputRef}
@@ -1330,7 +1347,7 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             type="button"
             onClick={() => setCameraModalOpen(true)}
-            className="p-2 sm:p-2.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-transform active:scale-95 shrink-0"
+            className="p-2 sm:p-2.5 rounded-full text-blue-400 hover:text-pink-400 hover:bg-blue-500/10 transition-transform active:scale-95 shrink-0"
             title="Take photo"
           >
             <Camera className="w-5 h-5" />
@@ -1339,7 +1356,7 @@ export function ChatView({ onBack, onOpenInvite }) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 sm:p-2.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-transform active:scale-95 shrink-0"
+            className="p-2 sm:p-2.5 rounded-full text-blue-400 hover:text-pink-400 hover:bg-blue-500/10 transition-transform active:scale-95 shrink-0"
             title="Attach file"
           >
             <Paperclip className="w-5 h-5" />
@@ -1355,7 +1372,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <button onClick={cancelRecording} className="px-2 py-1 rounded-lg bg-slate-900 text-slate-400 text-xs font-bold">
                   Cancel
                 </button>
-                <button onClick={stopRecording} className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black">
+                <button onClick={stopRecording} className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-500 to-pink-500 text-white text-xs font-black">
                   Send 🎙️
                 </button>
               </div>
@@ -1370,13 +1387,13 @@ export function ChatView({ onBack, onOpenInvite }) {
                   setMessageText(e.target.value);
                   sendTyping(e.target.value.length > 0, 'normal');
                 }}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-full px-4 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 shadow-inner min-w-0"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-full px-4 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-pink-500/60 focus:ring-1 focus:ring-blue-500/40 shadow-inner min-w-0"
               />
 
               {messageText.trim() ? (
                 <button
                   type="submit"
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center font-black transition-transform active:scale-90 shrink-0 shadow-md shadow-emerald-500/30"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-400 hover:to-pink-400 text-white flex items-center justify-center font-black transition-transform active:scale-90 shrink-0 shadow-md shadow-pink-500/30"
                   title="Send message"
                 >
                   <Send className="w-4 h-4 fill-current ml-0.5" />
@@ -1385,7 +1402,7 @@ export function ChatView({ onBack, onOpenInvite }) {
                 <button
                   type="button"
                   onClick={startRecording}
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400 border border-slate-700 flex items-center justify-center transition-transform active:scale-90 shrink-0"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-800 hover:bg-pink-500/20 text-slate-300 hover:text-pink-400 border border-slate-700 flex items-center justify-center transition-transform active:scale-90 shrink-0"
                   title="Record audio note"
                 >
                   <Mic className="w-4 h-4" />

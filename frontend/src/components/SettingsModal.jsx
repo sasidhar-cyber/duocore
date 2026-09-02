@@ -101,11 +101,14 @@ export function SettingsModal({ isOpen, onClose, deferredPrompt }) {
     }
   };
 
-  const handleToggleNotif = (key, currentVal, setter) => {
+  const handleToggleNotif = async (key, currentVal, setter) => {
     const next = !currentVal;
     setter(next);
     localStorage.setItem(key, String(next));
     localStorage.setItem('duocore_notifications_enabled', String(next));
+    if (next && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      await handleRequestPermission();
+    }
   };
 
   const savePanicSettings = () => {

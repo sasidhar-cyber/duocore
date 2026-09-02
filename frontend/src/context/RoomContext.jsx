@@ -137,7 +137,7 @@ export function RoomProvider({ children }) {
     if (!s) return;
 
     const handleNewMessage = (msg) => {
-      if (msg.room_id === currentRoomIdRef.current) {
+      if (!currentRoomIdRef.current || msg.room_id === currentRoomIdRef.current) {
         if (msg.channel_type === 'private') {
           setPrivateMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
@@ -149,17 +149,15 @@ export function RoomProvider({ children }) {
             return [...prev, msg];
           });
         }
+      }
 
-        if (msg.sender_id !== user?.id) {
-          if (localStorage.getItem('duocore_notif_messages') !== 'false') {
-            playSound('message');
-            if (document.hidden) {
-              showBrowserNotification(msg.username || 'DuoCore Message', {
-                body: msg.text || 'Sent you an attachment',
-                tag: `duocore-${msg.room_id}`
-              });
-            }
-          }
+      if (msg.sender_id !== user?.id) {
+        if (localStorage.getItem('duocore_notif_messages') !== 'false') {
+          playSound('message');
+          showBrowserNotification(msg.username || 'DuoCore Message', {
+            body: msg.text || 'Sent you an attachment',
+            tag: `duocore-${msg.room_id}`
+          });
         }
       }
     };
