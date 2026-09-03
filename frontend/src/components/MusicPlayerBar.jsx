@@ -37,10 +37,14 @@ export function MusicPlayerBar() {
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-xl border-t border-emerald-500/30 shadow-[0_-10px_30px_rgba(0,0,0,0.8)] select-none pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+    <div
+      onClick={openNowPlaying}
+      className="fixed bottom-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-xl border-t border-emerald-500/30 shadow-[0_-10px_30px_rgba(0,0,0,0.8)] select-none pb-[max(0.25rem,env(safe-area-inset-bottom))] cursor-pointer group"
+    >
       {/* Top Scrub Progress Bar */}
       <div
         onClick={(e) => {
+          e.stopPropagation();
           const rect = e.currentTarget.getBoundingClientRect();
           const clickX = e.clientX - rect.left;
           const newTime = (clickX / rect.width) * (duration || 1);
@@ -59,10 +63,9 @@ export function MusicPlayerBar() {
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 flex items-center justify-between gap-2 sm:gap-3">
         {/* Track Info (Click to Expand to Full Screen Player) */}
         <div
-          onClick={openNowPlaying}
-          className="flex items-center gap-2.5 sm:gap-3 min-w-0 max-w-[55%] sm:max-w-[40%] cursor-pointer group"
+          className="flex items-center gap-2.5 sm:gap-3 min-w-0 max-w-[55%] sm:max-w-[40%] flex-1"
         >
-          <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-emerald-500/30 group-hover:ring-emerald-400 transition-all">
+          <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-emerald-500/30 group-hover:ring-emerald-400 transition-all shadow-md">
             <img
               src={currentTrack.thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
               alt={currentTrack.title}
@@ -91,7 +94,10 @@ export function MusicPlayerBar() {
         </div>
 
         {/* Center Playback Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1.5 sm:gap-3 shrink-0"
+        >
           <button
             onClick={prevTrack}
             className="p-1.5 sm:p-2 text-slate-400 hover:text-white transition-all active:scale-95 hidden xs:block"
@@ -124,7 +130,10 @@ export function MusicPlayerBar() {
         </div>
 
         {/* Right Tools: Like, Lyrics, Queue, Sleep Timer & Expand */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1 sm:gap-2 shrink-0"
+        >
           {/* Sleep Timer Indicator */}
           {sleepTimeRemaining && (
             <span className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10px] font-mono text-cyan-300">

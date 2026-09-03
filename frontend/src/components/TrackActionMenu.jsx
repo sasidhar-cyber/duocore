@@ -11,7 +11,8 @@ import {
   Disc3,
   User,
   Sparkles,
-  Share2
+  Share2,
+  Radio
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { downloadTrack, isTrackDownloaded, isTrackDownloading } from '../utils/downloadManager';
@@ -23,6 +24,7 @@ export function TrackActionMenu({ track, isOpen, onClose, onOpenAlbum, onOpenArt
     playTrack,
     addToQueue,
     playNext,
+    startRadio,
     isFavorite,
     toggleFavorite,
     openPlaylistModal
@@ -98,6 +100,18 @@ export function TrackActionMenu({ track, isOpen, onClose, onOpenAlbum, onOpenArt
           >
             <Play className="w-4 h-4 text-emerald-400 fill-current ml-0.5" />
             <span>Play Now</span>
+          </button>
+
+          <button
+            onClick={() => {
+              startRadio(track);
+              if (onShowToast) onShowToast(`📻 Starting ${track.title} Radio...`);
+              onClose();
+            }}
+            className="w-full p-2.5 rounded-2xl hover:bg-slate-800/80 text-left flex items-center gap-3 text-xs font-bold text-slate-200 transition-colors"
+          >
+            <Radio className="w-4 h-4 text-purple-400" />
+            <span>Start Song Radio</span>
           </button>
 
           <button
@@ -188,6 +202,26 @@ export function TrackActionMenu({ track, isOpen, onClose, onOpenAlbum, onOpenArt
               <span>View Artist ({track.artist})</span>
             </button>
           )}
+
+          <button
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({
+                  title: `${track.title} - SoundWave`,
+                  text: `Listen to "${track.title}" by ${track.artist} on SoundWave!`,
+                  url: window.location.href
+                }).catch(() => {});
+              } else {
+                navigator.clipboard?.writeText(`${track.title} - ${track.artist}`);
+                if (onShowToast) onShowToast('📋 Song title copied to clipboard!');
+              }
+              onClose();
+            }}
+            className="w-full p-2.5 rounded-2xl hover:bg-slate-800/80 text-left flex items-center gap-3 text-xs font-bold text-slate-200 transition-colors"
+          >
+            <Share2 className="w-4 h-4 text-emerald-400" />
+            <span>Share Song</span>
+          </button>
         </div>
       </div>
     </div>

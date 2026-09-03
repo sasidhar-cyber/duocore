@@ -81,6 +81,18 @@ export function NowPlayingModal({ isOpen, onClose }) {
   const [eqMenuOpen, setEqMenuOpen] = useState(false);
   const [sharedToast, setSharedToast] = useState(false);
 
+  // Close full player on Escape key
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !currentTrack) return null;
 
   const liked = isFavorite(currentTrack.id);

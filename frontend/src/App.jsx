@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { RoomProvider, useRoom } from './context/RoomContext';
 import { MusicProvider, useMusic } from './context/MusicContext';
 import { Navbar } from './components/Navbar';
-import { MusicHomePage } from './pages/MusicHomePage';
+import { NewMusicHomePage } from './pages/NewMusicHomePage';
 import { MusicPlayerBar } from './components/MusicPlayerBar';
 import { NowPlayingModal } from './components/NowPlayingModal';
 import { LyricsModal } from './components/LyricsModal';
@@ -110,7 +110,7 @@ function AppContent() {
           />
           <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-xs font-mono tracking-widest uppercase text-emerald-400 font-bold">
-            DuoCore Starting...
+            SoundWave Starting...
           </span>
         </div>
       </div>
@@ -155,7 +155,7 @@ function AppContent() {
           />
 
           <main className="flex-1 pb-24">
-            <MusicHomePage onOpenPinPrompt={() => setIsPinPromptOpen(true)} />
+            <NewMusicHomePage onOpenPinPrompt={() => setIsPinPromptOpen(true)} />
           </main>
 
           {/* Global Bottom Sticky Music Player */}

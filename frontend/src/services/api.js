@@ -84,6 +84,11 @@ export default {
   getArtists: (q = '') => apiRequest(`/music/artists${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   getArtistDetails: (id) => apiRequest(`/music/artists/${encodeURIComponent(id)}`),
   getTeluguHub: () => apiRequest('/music/telugu'),
+  getRadioTracks: (trackId = '', title = '', artist = '', language = '') =>
+    apiRequest(`/music/radio?trackId=${encodeURIComponent(trackId)}&title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&language=${encodeURIComponent(language)}`),
+  getCharts: () => apiRequest('/music/charts'),
+  getMoods: () => apiRequest('/music/moods'),
+  getGenres: () => apiRequest('/music/genres'),
 
   // Favorites (Database Persisted)
   getFavorites: () => apiRequest('/music/favorites'),

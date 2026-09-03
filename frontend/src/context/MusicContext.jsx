@@ -77,6 +77,15 @@ export function MusicProvider({ children }) {
   // Equalizer
   const [activeEqPreset, setActiveEqPreset] = useState('Flat');
 
+  // Radio, Autoplay, Playback Rate & Crossfade
+  const [isAutoplay, setIsAutoplay] = useState(() => {
+    return localStorage.getItem('soundwave_autoplay') !== 'false';
+  });
+  const [isRadioMode, setIsRadioMode] = useState(false);
+  const [radioTitle, setRadioTitle] = useState('');
+  const [playbackRate, setPlaybackRateState] = useState(1.0);
+  const [isCrossfade, setIsCrossfade] = useState(false);
+
   // Sleep Timer
   const [sleepTimerOption, setSleepTimerOption] = useState(null);
   const [sleepTimeRemaining, setSleepTimeRemaining] = useState(null);
@@ -202,7 +211,7 @@ export function MusicProvider({ children }) {
   };
 
   // Play a Track (Mobile & Desktop Rock Solid)
-  const playTrack = async (track, newQueue = null, autoOpen = true) => {
+  const playTrack = async (track, newQueue = null, autoOpen = false) => {
     if (!track) return;
 
     if (newQueue) {
@@ -241,11 +250,15 @@ export function MusicProvider({ children }) {
     api.recordHistory(track, track.seconds || 0).catch(() => {});
 
     try {
-      const res = await api.getMusicStream(track.id);
-      if (!res.streamUrl) throw new Error('Stream URL unavailable');
-      const resolvedUrl = resolveStreamUrl(res.streamUrl);
+      let resolvedUrl = track.audioUrl ? resolveStreamUrl(track.audioUrl) : '';
 
-      if (audioRef.current) {
+      if (!resolvedUrl) {
+        const res = await api.getMusicStream(track.id);
+        if (!res?.streamUrl) throw new Error('Stream URL unavailable');
+        resolvedUrl = resolveStreamUrl(res.streamUrl);
+      }
+
+      if (audioRef.current && resolvedUrl) {
         audioRef.current.src = resolvedUrl;
         audioRef.current.load();
 
@@ -295,14 +308,79 @@ export function MusicProvider({ children }) {
     }
   };
 
+  useEffect(() => {
+    localStorage.setItem('soundwave_autoplay', isAutoplay);
+  }, [isAutoplay]);
+
+  const setPlaybackRate = (rate) => {
+    setPlaybackRateState(rate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
+    }
+  };
+
+  const startRadio = async (track) => {
+    if (!track) return;
+    setIsRadioMode(true);
+    setRadioTitle(`${track.title || track.artist} Radio`);
+    try {
+      const res = await api.getRadioTracks(track.id, track.title, track.artist, track.language);
+      if (res.tracks && res.tracks.length > 0) {
+        setQueue(res.tracks);
+        setCurrentIndex(0);
+        playTrack(res.tracks[0], res.tracks);
+      } else {
+        playTrack(track, [track]);
+      }
+    } catch (e) {
+      playTrack(track, [track]);
+    }
+  };
+
+  const fetchMoreAutoplayTracks = async (seedTrack) => {
+    if (!seedTrack) return;
+    try {
+      const res = await api.getRadioTracks(seedTrack.id, seedTrack.title, seedTrack.artist, seedTrack.language);
+      if (res.tracks && res.tracks.length > 0) {
+        setQueue((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const newUnique = res.tracks.filter((t) => !existingIds.has(t.id));
+          if (newUnique.length > 0) {
+            return [...prev, ...newUnique];
+          }
+          return prev;
+        });
+      }
+    } catch (e) {}
+  };
+
   const nextTrack = useCallback(() => {
     if (queue.length === 0) return;
     let nextIdx = isShuffle
       ? Math.floor(Math.random() * queue.length)
-      : (currentIndex + 1) % queue.length;
+      : currentIndex + 1;
+
+    // Check if we reached the end of the queue
+    if (nextIdx >= queue.length) {
+      if (isAutoplay) {
+        const lastTrack = queue[queue.length - 1] || currentTrack;
+        fetchMoreAutoplayTracks(lastTrack);
+        // Loop around or continue
+        nextIdx = 0;
+      } else {
+        nextIdx = 0;
+      }
+    }
+
+    // Proactively fetch more if < 3 tracks left in queue and autoplay enabled
+    if (isAutoplay && queue.length - nextIdx <= 2) {
+      const lastTrack = queue[queue.length - 1] || currentTrack;
+      fetchMoreAutoplayTracks(lastTrack);
+    }
+
     setCurrentIndex(nextIdx);
     playTrack(queue[nextIdx]);
-  }, [queue, currentIndex, isShuffle]);
+  }, [queue, currentIndex, isShuffle, isAutoplay, currentTrack]);
 
   const prevTrack = () => {
     if (queue.length === 0) return;
@@ -589,6 +667,16 @@ export function MusicProvider({ children }) {
         isSecretChatOpen,
         isPlaylistModalOpen,
         playlistTrackToAdd,
+        isAutoplay,
+        setIsAutoplay,
+        isRadioMode,
+        setIsRadioMode,
+        radioTitle,
+        startRadio,
+        playbackRate,
+        setPlaybackRate,
+        isCrossfade,
+        setIsCrossfade,
         THEMES,
         EQ_PRESETS,
         playTrack,
@@ -606,6 +694,7 @@ export function MusicProvider({ children }) {
         playAllFavorites,
         addToQueue,
         playNextInQueue,
+        playNext: playNextInQueue,
         removeFromQueue,
         clearQueue,
         reorderQueue,
