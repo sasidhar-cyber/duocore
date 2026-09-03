@@ -18,11 +18,64 @@ const JIOSAAVN_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 };
 
-// Stream URL cache (5 minutes TTL)
+// Stream URL cache (15 minutes TTL)
 const streamUrlCache = new Map();
 
-// Decrypt JioSaavn encrypted media URLs
-function decryptSaavnMediaUrl(encryptedUrl) {
+// Generate dynamic authentic SVG avatar for song based on title & artist
+function escapeXml(unsafe) {
+  return String(unsafe || '')
+    .replace(/[<>&'"]/g, (c) => {
+      switch (c) {
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '&': return '&amp;';
+        case '\'': return '&apos;';
+        case '"': return '&quot;';
+      }
+    });
+}
+
+function generateSongAvatar(title = 'Song', artist = 'Artist') {
+  const t = String(title || 'Song').slice(0, 24);
+  const a = String(artist || 'Artist').slice(0, 24);
+  const palettes = [
+    ['#10b981', '#064e3b', '#34d399'], // emerald
+    ['#ec4899', '#831843', '#f472b6'], // pink
+    ['#06b6d4', '#164e63', '#22d3ee'], // cyan
+    ['#8b5cf6', '#4c1d95', '#a78bfa'], // purple
+    ['#f59e0b', '#78350f', '#fbbf24'], // amber
+    ['#3b82f6', '#1e3a8a', '#60a5fa'], // blue
+    ['#ef4444', '#7f1d1d', '#f87171'], // red
+  ];
+  let hash = 0;
+  const str = String(title) + String(artist);
+  for (let i = 0; i < str.length; i++) hash = (hash << 5) - hash + str.charCodeAt(i);
+  const [c1, c2, c3] = palettes[Math.abs(hash) % palettes.length];
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${c1}"/>
+        <stop offset="100%" stop-color="${c2}"/>
+      </linearGradient>
+    </defs>
+    <rect width="500" height="500" rx="36" fill="url(#g)"/>
+    <!-- Vinyl record texture -->
+    <circle cx="250" cy="220" r="140" fill="#0b0f19" stroke="${c3}" stroke-width="2" opacity="0.85"/>
+    <circle cx="250" cy="220" r="105" fill="none" stroke="#334155" stroke-width="1.5" opacity="0.6"/>
+    <circle cx="250" cy="220" r="70" fill="none" stroke="#475569" stroke-width="1.5" opacity="0.6"/>
+    <circle cx="250" cy="220" r="45" fill="${c1}"/>
+    <circle cx="250" cy="220" r="14" fill="#ffffff"/>
+    <!-- Title & Artist -->
+    <text x="250" y="415" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="24" fill="#ffffff" text-anchor="middle">${escapeXml(t)}</text>
+    <text x="250" y="450" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="16" fill="rgba(255,255,255,0.8)" text-anchor="middle">${escapeXml(a)}</text>
+  </svg>`;
+
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+
+// Decrypt JioSaavn encrypted media URLs with bitrate quality selection (320, 160, 96 kbps)
+function decryptSaavnMediaUrl(encryptedUrl, quality = '320') {
   if (!encryptedUrl) return null;
   try {
     const key = CryptoJS.enc.Utf8.parse('38346591');
@@ -33,19 +86,27 @@ function decryptSaavnMediaUrl(encryptedUrl) {
     );
     const rawUrl = decrypted.toString(CryptoJS.enc.Utf8);
     if (!rawUrl || !rawUrl.startsWith('http')) return null;
-    // Upgrade to 320kbps quality
-    return rawUrl.replace(/_96\.(mp4|m4a)/, '_320.mp4').replace(/_160\.(mp4|m4a)/, '_320.mp4');
+
+    const q = String(quality || '320');
+    if (q === '96') {
+      return rawUrl.replace(/_(160|320)\.(mp4|m4a)/, '_96.mp4');
+    } else if (q === '160') {
+      return rawUrl.replace(/_(96|320)\.(mp4|m4a)/, '_160.mp4');
+    } else {
+      // Default 320kbps HD
+      return rawUrl.replace(/_(96|160)\.(mp4|m4a)/, '_320.mp4');
+    }
   } catch (e) {
     console.error('[JioSaavn] Decryption error:', e.message);
     return null;
   }
 }
 
-// Clean and upscale image URLs
-function cleanImage(img) {
-  if (!img || typeof img !== 'string') return 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop';
+// Clean and upscale image URLs or generate dynamic fallback avatar
+function cleanImage(img, title = '', artist = '') {
+  if (!img || typeof img !== 'string') return generateSongAvatar(title, artist);
   if (img.includes('default-music') || img.includes('default-film') || img.includes('default_artist') || img.includes('artist-default')) {
-    return 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&h=500&fit=crop';
+    return generateSongAvatar(title, artist);
   }
   return img.replace(/50x50|150x150/, '500x500').replace(/^http:\/\//i, 'https://');
 }
@@ -74,17 +135,20 @@ function htmlDecode(str) {
 // Normalize JioSaavn song item to unified format
 function normalizeSong(item) {
   const moreInfo = item.more_info || {};
-  const streamUrl = decryptSaavnMediaUrl(item.encrypted_media_url || moreInfo.encrypted_media_url);
+  const songTitle = htmlDecode(item.song || item.title || 'Unknown Title');
+  const songArtist = htmlDecode(item.singers || item.primary_artists || moreInfo.singers || moreInfo.primary_artists || 'Unknown Artist');
+  const songAlbum = htmlDecode(item.album || moreInfo.album || 'Single');
+  const streamUrl = decryptSaavnMediaUrl(item.encrypted_media_url || moreInfo.encrypted_media_url, '320');
 
   return {
     id: item.id || item.song_id || item.perma_url,
-    title: htmlDecode(item.song || item.title || 'Unknown Title'),
-    artist: htmlDecode(item.singers || item.primary_artists || moreInfo.singers || moreInfo.primary_artists || 'Unknown Artist'),
-    album: htmlDecode(item.album || moreInfo.album || 'Single'),
+    title: songTitle,
+    artist: songArtist,
+    album: songAlbum,
     albumId: item.albumid || moreInfo.album_id,
     duration: formatDuration(item.duration || moreInfo.duration),
     seconds: parseInt(item.duration || moreInfo.duration || 210, 10),
-    thumbnail: cleanImage(item.image),
+    thumbnail: cleanImage(item.image, songTitle, songArtist),
     audioUrl: streamUrl,
     encryptedUrl: item.encrypted_media_url || moreInfo.encrypted_media_url,
     year: item.year || moreInfo.year || new Date().getFullYear().toString(),
@@ -93,6 +157,39 @@ function normalizeSong(item) {
     explicit: item.explicit_content === 1 || item.explicit_content === '1',
     hasLyrics: item.has_lyrics === 'true' || item.has_lyrics === true,
     permaUrl: item.perma_url || item.url
+  };
+}
+
+// Normalize iTunes song item for Universal Music Engine
+function normalizeITunesSong(item) {
+  const title = htmlDecode(item.trackName || 'Unknown Title');
+  const artist = htmlDecode(item.artistName || 'Unknown Artist');
+  const album = htmlDecode(item.collectionName || 'Single');
+  const durationSec = Math.round((item.trackTimeMillis || 210000) / 1000);
+  const artwork = item.artworkUrl100
+    ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+    : generateSongAvatar(title, artist);
+
+  return {
+    id: `itunes-${item.trackId}`,
+    itunesId: item.trackId,
+    title,
+    artist,
+    album,
+    albumId: item.collectionId ? `itunes-alb-${item.collectionId}` : null,
+    duration: formatDuration(durationSec),
+    seconds: durationSec,
+    thumbnail: artwork,
+    audioUrl: item.previewUrl || null,
+    previewUrl: item.previewUrl || null,
+    searchSeed: `${title} ${artist}`,
+    year: item.releaseDate ? item.releaseDate.slice(0, 4) : new Date().getFullYear().toString(),
+    language: 'English',
+    playCount: '10M+',
+    explicit: item.trackExplicitness === 'explicit',
+    hasLyrics: true,
+    source: 'universal',
+    permaUrl: item.trackViewUrl
   };
 }
 
@@ -130,7 +227,7 @@ function normalizeArtist(item) {
 }
 
 // ===========================
-// 1. SEARCH - Main Search API
+// 1. SEARCH - Universal Music Search Engine
 // ===========================
 router.get('/search', async (req, res) => {
   const query = String(req.query.q || req.query.query || '').trim();
@@ -147,23 +244,26 @@ router.get('/search', async (req, res) => {
   }
 
   try {
-    // Parallel fetch: songs, autocomplete (for top result + structured data), albums, artists
-    const [songsRes, autoRes, albumsRes, artistsRes] = await Promise.allSettled([
+    // Parallel fetch: JioSaavn (songs, autocomplete, albums, artists) + iTunes Universal Search Engine
+    const [songsRes, autoRes, albumsRes, artistsRes, itunesRes] = await Promise.allSettled([
       axios.get(`https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&cc=in&includeMetaTags=1&q=${encodeURIComponent(query)}&p=1&n=20`, {
         headers: JIOSAAVN_HEADERS,
-        timeout: 8000
+        timeout: 6000
       }),
       axios.get(`https://www.jiosaavn.com/api.php?__call=autocomplete.get&_format=json&_marker=0&cc=in&includeMetaTags=1&query=${encodeURIComponent(query)}`, {
         headers: JIOSAAVN_HEADERS,
-        timeout: 8000
+        timeout: 6000
       }),
       axios.get(`https://www.jiosaavn.com/api.php?__call=search.getAlbumResults&_format=json&_marker=0&cc=in&includeMetaTags=1&q=${encodeURIComponent(query)}&p=1&n=8`, {
         headers: JIOSAAVN_HEADERS,
-        timeout: 8000
+        timeout: 6000
       }),
       axios.get(`https://www.jiosaavn.com/api.php?__call=search.getArtistResults&_format=json&_marker=0&cc=in&includeMetaTags=1&q=${encodeURIComponent(query)}&p=1&n=8`, {
         headers: JIOSAAVN_HEADERS,
-        timeout: 8000
+        timeout: 6000
+      }),
+      axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=12`, {
+        timeout: 6000
       })
     ]);
 
@@ -171,9 +271,37 @@ router.get('/search', async (req, res) => {
     const autoData = autoRes.status === 'fulfilled' ? (autoRes.value.data || {}) : {};
     const rawAlbums = albumsRes.status === 'fulfilled' ? (albumsRes.value.data?.results || []) : [];
     const rawArtists = artistsRes.status === 'fulfilled' ? (artistsRes.value.data?.results || []) : [];
+    const rawItunes = itunesRes.status === 'fulfilled' ? (itunesRes.value.data?.results || []) : [];
 
-    // Process songs
-    const songs = rawSongs.map(normalizeSong).slice(0, 20);
+    // Process JioSaavn songs
+    const saavnSongs = rawSongs.map(normalizeSong);
+
+    // Process iTunes songs
+    const itunesSongs = rawItunes.map(normalizeITunesSong);
+
+    // Merge and deduplicate songs (avoid duplicate titles)
+    const existingMap = new Map();
+    const mergedSongs = [];
+
+    // Prioritize JioSaavn high-fidelity songs
+    for (const song of saavnSongs) {
+      const key = `${song.title.toLowerCase().replace(/[^a-z0-9]/g, '')}_${song.artist.toLowerCase().slice(0, 5)}`;
+      if (!existingMap.has(key)) {
+        existingMap.set(key, true);
+        mergedSongs.push(song);
+      }
+    }
+
+    // Add unique iTunes international songs
+    for (const song of itunesSongs) {
+      const key = `${song.title.toLowerCase().replace(/[^a-z0-9]/g, '')}_${song.artist.toLowerCase().slice(0, 5)}`;
+      if (!existingMap.has(key)) {
+        existingMap.set(key, true);
+        mergedSongs.push(song);
+      }
+    }
+
+    const songs = mergedSongs.slice(0, 24);
 
     // Process albums (prefer direct search, fallback to autocomplete)
     const albums = (rawAlbums.length > 0 ? rawAlbums : (autoData.albums?.data || [])).map(normalizeAlbum).slice(0, 8);
@@ -186,12 +314,12 @@ router.get('/search', async (req, res) => {
       id: pl.id || pl.listid,
       title: htmlDecode(pl.title || pl.listname),
       subtitle: pl.description || pl.extra || 'Playlist',
-      image: cleanImage(pl.image),
+      image: cleanImage(pl.image, pl.title || pl.listname, 'SoundWave'),
       type: pl.type || 'playlist',
       permaUrl: pl.perma_url || pl.url
     })).slice(0, 6);
 
-    // Determine TOP RESULT from autocomplete's topquery
+    // Determine TOP RESULT from autocomplete's topquery or first exact song match
     let topResult = null;
     if (autoData.topquery?.data?.[0]) {
       const t = autoData.topquery.data[0];
@@ -200,7 +328,7 @@ router.get('/search', async (req, res) => {
         id: t.id,
         title: htmlDecode(t.title),
         subtitle: t.description || t.extra || t.type,
-        image: cleanImage(t.image),
+        image: cleanImage(t.image, t.title, t.description || t.type),
         url: t.url
       };
     } else if (songs.length > 0) {
@@ -225,7 +353,7 @@ router.get('/search', async (req, res) => {
       total: songs.length + albums.length + artists.length + playlists.length
     });
   } catch (err) {
-    console.error('[JioSaavn Search Error]:', err.message);
+    console.error('[Universal Search Error]:', err.message);
     res.status(500).json({
       error: 'Search failed',
       topResult: null,
@@ -661,18 +789,43 @@ router.get('/telugu', async (req, res) => {
 });
 
 // ===========================
-// 14. AUDIO STREAM RESOLUTION & REDIRECT
+// 14. AUDIO STREAM RESOLUTION & MULTI-BITRATE SELECTOR
 // ===========================
-const resolveStream = async (videoId) => {
+const resolveStream = async (videoId, quality = '320', searchHint = '') => {
   if (!videoId) return null;
 
-  const cached = streamUrlCache.get(videoId);
+  const cacheKey = `${videoId}_${quality}`;
+  const cached = streamUrlCache.get(cacheKey);
   if (cached && cached.expireAt > Date.now()) {
     return cached.url;
   }
 
+  // If videoId is an iTunes track ID, search by searchHint or title to get full 320kbps stream
+  if (String(videoId).startsWith('itunes-') && searchHint) {
+    try {
+      const searchRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&_marker=0&cc=in&includeMetaTags=1&q=${encodeURIComponent(searchHint)}&p=1&n=1`, {
+        headers: JIOSAAVN_HEADERS,
+        timeout: 5000
+      });
+
+      const track = searchRes.data?.results?.[0];
+      if (track) {
+        const streamUrl = decryptSaavnMediaUrl(track.encrypted_media_url || track.more_info?.encrypted_media_url, quality);
+        if (streamUrl) {
+          streamUrlCache.set(cacheKey, {
+            url: streamUrl,
+            expireAt: Date.now() + (15 * 60 * 1000)
+          });
+          return streamUrl;
+        }
+      }
+    } catch (e) {
+      console.warn('[iTunes Stream Fallback Error]:', e.message);
+    }
+  }
+
   try {
-    // Lookup directly by song pid / ID
+    // Lookup directly by song pid / ID on JioSaavn
     const detailsRes = await axios.get(`https://www.jiosaavn.com/api.php?__call=song.getDetails&_format=json&_marker=0&cc=in&pids=${encodeURIComponent(videoId)}`, {
       headers: JIOSAAVN_HEADERS,
       timeout: 5000
@@ -681,9 +834,9 @@ const resolveStream = async (videoId) => {
     const songData = detailsRes.data?.[videoId] || Object.values(detailsRes.data || {})[0];
     if (songData) {
       const encrypted = songData.encrypted_media_url || songData.more_info?.encrypted_media_url;
-      const streamUrl = decryptSaavnMediaUrl(encrypted);
+      const streamUrl = decryptSaavnMediaUrl(encrypted, quality);
       if (streamUrl) {
-        streamUrlCache.set(videoId, {
+        streamUrlCache.set(cacheKey, {
           url: streamUrl,
           expireAt: Date.now() + (15 * 60 * 1000)
         });
@@ -703,9 +856,9 @@ const resolveStream = async (videoId) => {
 
     const track = searchRes.data?.results?.[0];
     if (track) {
-      const streamUrl = decryptSaavnMediaUrl(track.encrypted_media_url || track.more_info?.encrypted_media_url);
+      const streamUrl = decryptSaavnMediaUrl(track.encrypted_media_url || track.more_info?.encrypted_media_url, quality);
       if (streamUrl) {
-        streamUrlCache.set(videoId, {
+        streamUrlCache.set(cacheKey, {
           url: streamUrl,
           expireAt: Date.now() + (15 * 60 * 1000)
         });
@@ -722,12 +875,15 @@ const resolveStream = async (videoId) => {
 // Stream JSON endpoint (Used by frontend api.getMusicStream)
 router.get('/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
+  const quality = String(req.query.quality || '320');
+  const searchHint = String(req.query.title || req.query.query || '');
+
   try {
-    const streamUrl = await resolveStream(videoId);
+    const streamUrl = await resolveStream(videoId, quality, searchHint);
     if (!streamUrl) {
       return res.status(404).json({ error: 'Stream not found' });
     }
-    res.json({ streamUrl });
+    res.json({ streamUrl, quality });
   } catch (err) {
     console.error('[Stream Error]:', err.message);
     res.status(500).json({ error: 'Failed to resolve stream URL' });
@@ -737,8 +893,11 @@ router.get('/stream/:videoId', async (req, res) => {
 // Direct audio redirect endpoint
 router.get('/audio-stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
+  const quality = String(req.query.quality || '320');
+  const searchHint = String(req.query.title || req.query.query || '');
+
   try {
-    const streamUrl = await resolveStream(videoId);
+    const streamUrl = await resolveStream(videoId, quality, searchHint);
     if (!streamUrl) {
       return res.status(404).send('Track stream not found');
     }

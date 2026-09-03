@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import api, { resolveStreamUrl } from '../services/api';
+import { getOfflineAudioUrl } from '../utils/downloadManager';
 
 const MusicContext = createContext();
 
@@ -19,6 +20,12 @@ export const EQ_PRESETS = {
   'Balanced': { bass: 3, mid: 2, treble: 3 }
 };
 
+export const AUDIO_QUALITIES = [
+  { id: '320', label: '320kbps HD', desc: 'Ultra High Definition Studio Quality' },
+  { id: '160', label: '160kbps Standard', desc: 'Balanced Streaming' },
+  { id: '96', label: '96kbps Saver', desc: 'Fast Buffering & Data Saver' }
+];
+
 export function MusicProvider({ children }) {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [queue, setQueue] = useState([]);
@@ -33,6 +40,11 @@ export function MusicProvider({ children }) {
   const [isLoop, setIsLoop] = useState(false);
   const [trackError, setTrackError] = useState(null);
 
+  // Audio Bitrate Quality (320kbps HD / 160kbps / 96kbps)
+  const [audioQuality, setAudioQuality] = useState(() => {
+    return localStorage.getItem('soundwave_audio_quality') || '320';
+  });
+
   // Favorites (Synced with DB + Local Storage)
   const [favorites, setFavorites] = useState(() => {
     try {
@@ -46,6 +58,7 @@ export function MusicProvider({ children }) {
   const [playlists, setPlaylists] = useState([]);
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [playlistTrackToAdd, setPlaylistTrackToAdd] = useState(null);
+  const [playlistDetailState, setPlaylistDetailState] = useState({ isOpen: false, id: null, meta: null });
 
   // History & Statistics
   const [recentlyPlayed, setRecentlyPlayed] = useState(() => {
@@ -170,7 +183,6 @@ export function MusicProvider({ children }) {
       mid.connect(treble);
       treble.connect(ctx.destination);
     } catch (e) {
-      // Mobile Safari / Chrome may restrict createMediaElementSource without CORS
       console.warn('[Equalizer] Handled gracefully:', e);
     }
   };
@@ -210,7 +222,39 @@ export function MusicProvider({ children }) {
     playTrack(list[0], list);
   };
 
-  // Play a Track (Mobile & Desktop Rock Solid)
+  // Change Audio Bitrate Stream Quality
+  const changeAudioQuality = async (newQuality) => {
+    setAudioQuality(newQuality);
+    localStorage.setItem('soundwave_audio_quality', newQuality);
+
+    if (currentTrack && audioRef.current) {
+      const savedTime = audioRef.current.currentTime;
+      const wasPlaying = !audioRef.current.paused;
+
+      try {
+        setIsBuffering(true);
+        const res = await api.getMusicStream(currentTrack.id, newQuality);
+        if (res?.streamUrl) {
+          const resolvedUrl = resolveStreamUrl(res.streamUrl);
+          audioRef.current.src = resolvedUrl;
+          audioRef.current.currentTime = savedTime;
+          if (wasPlaying) {
+            audioRef.current.play().then(() => {
+              setIsPlaying(true);
+              setIsBuffering(false);
+            }).catch(() => setIsBuffering(false));
+          } else {
+            setIsBuffering(false);
+          }
+        }
+      } catch (err) {
+        console.warn('[Quality Switch Error]:', err);
+        setIsBuffering(false);
+      }
+    }
+  };
+
+  // Play a Track (Mobile & Desktop Rock Solid + CacheStorage Offline Support)
   const playTrack = async (track, newQueue = null, autoOpen = false) => {
     if (!track) return;
 
@@ -250,10 +294,15 @@ export function MusicProvider({ children }) {
     api.recordHistory(track, track.seconds || 0).catch(() => {});
 
     try {
-      let resolvedUrl = track.audioUrl ? resolveStreamUrl(track.audioUrl) : '';
-
-      if (!resolvedUrl) {
-        const res = await api.getMusicStream(track.id);
+      // 1. Check if track is cached in CacheStorage for instant offline playback
+      let resolvedUrl = '';
+      const offlineBlobUrl = await getOfflineAudioUrl(track.id);
+      if (offlineBlobUrl) {
+        resolvedUrl = offlineBlobUrl;
+      } else if (track.audioUrl) {
+        resolvedUrl = resolveStreamUrl(track.audioUrl);
+      } else {
+        const res = await api.getMusicStream(track.id, audioQuality);
         if (!res?.streamUrl) throw new Error('Stream URL unavailable');
         resolvedUrl = resolveStreamUrl(res.streamUrl);
       }
@@ -365,14 +414,12 @@ export function MusicProvider({ children }) {
       if (isAutoplay) {
         const lastTrack = queue[queue.length - 1] || currentTrack;
         fetchMoreAutoplayTracks(lastTrack);
-        // Loop around or continue
         nextIdx = 0;
       } else {
         nextIdx = 0;
       }
     }
 
-    // Proactively fetch more if < 3 tracks left in queue and autoplay enabled
     if (isAutoplay && queue.length - nextIdx <= 2) {
       const lastTrack = queue[queue.length - 1] || currentTrack;
       fetchMoreAutoplayTracks(lastTrack);
@@ -524,9 +571,10 @@ export function MusicProvider({ children }) {
     await fetchPlaylists();
   };
 
-  const playPlaylist = async (playlistId, shuffle = false) => {
+  const playPlaylist = async (playlistIdOrObj, shuffle = false) => {
     try {
-      const res = await api.getPlaylist(playlistId);
+      const plId = typeof playlistIdOrObj === 'object' ? playlistIdOrObj.id : playlistIdOrObj;
+      const res = await api.getPlaylist(plId);
       const songList = res.playlist?.songs || res.tracks || res.songs || [];
       if (songList.length > 0) {
         let list = [...songList];
@@ -646,6 +694,9 @@ export function MusicProvider({ children }) {
         isMuted,
         isShuffle,
         isLoop,
+        audioQuality,
+        changeAudioQuality,
+        AUDIO_QUALITIES,
         favorites,
         playlists,
         recentlyPlayed,
@@ -668,6 +719,9 @@ export function MusicProvider({ children }) {
         isSecretChatOpen,
         isPlaylistModalOpen,
         playlistTrackToAdd,
+        playlistDetailState,
+        openPlaylistDetail: (id, meta) => setPlaylistDetailState({ isOpen: true, id, meta }),
+        closePlaylistDetail: () => setPlaylistDetailState({ isOpen: false, id: null, meta: null }),
         isAutoplay,
         setIsAutoplay,
         isRadioMode,

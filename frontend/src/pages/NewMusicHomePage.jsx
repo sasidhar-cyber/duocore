@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { AlbumDetailModal } from '../components/AlbumDetailModal';
 import { ArtistDetailModal } from '../components/ArtistDetailModal';
+import { PlaylistDetailModal } from '../components/PlaylistDetailModal';
 import { TrackActionMenu } from '../components/TrackActionMenu';
 import { EmptyState } from '../components/EmptyState';
 import { SkeletonCard, SkeletonList, SkeletonCarousel } from '../components/SkeletonLoader';
@@ -71,7 +72,10 @@ export function NewMusicHomePage({ onOpenPinPrompt }) {
     openShortcutsHelp,
     createPlaylist,
     deletePlaylist,
-    playPlaylist
+    playPlaylist,
+    playlistDetailState,
+    openPlaylistDetail,
+    closePlaylistDetail
   } = useMusic();
 
   // Navigation
@@ -413,6 +417,13 @@ export function NewMusicHomePage({ onOpenPinPrompt }) {
           setIsArtistModalOpen(false);
           handleOpenAlbum(albId, albData);
         }}
+      />
+
+      <PlaylistDetailModal
+        isOpen={playlistDetailState.isOpen}
+        onClose={closePlaylistDetail}
+        playlistId={playlistDetailState.id}
+        playlistMeta={playlistDetailState.meta}
       />
 
       <TrackActionMenu
@@ -1590,7 +1601,7 @@ export function NewMusicHomePage({ onOpenPinPrompt }) {
               {playlists.map((pl) => (
                 <div
                   key={pl.id}
-                  onClick={() => playPlaylist(pl)}
+                  onClick={() => openPlaylistDetail(pl.id, pl)}
                   className="p-4 rounded-2xl bg-slate-900/60 hover:bg-slate-850 border border-slate-800 cursor-pointer flex items-center justify-between gap-3 group transition-all"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -1603,16 +1614,29 @@ export function NewMusicHomePage({ onOpenPinPrompt }) {
                     </div>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deletePlaylist(pl.id);
-                      showToast('Deleted playlist');
-                    }}
-                    className="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playPlaylist(pl);
+                      }}
+                      className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 transition-all"
+                      title="Play Playlist"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deletePlaylist(pl.id);
+                        showToast('Deleted playlist');
+                      }}
+                      className="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition-all"
+                      title="Delete Playlist"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

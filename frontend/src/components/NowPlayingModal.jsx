@@ -25,7 +25,8 @@ import {
   Plus,
   Send,
   Sparkles,
-  Check
+  Check,
+  Zap
 } from 'lucide-react';
 import { playSound } from '../utils/soundEffects';
 
@@ -63,6 +64,9 @@ export function NowPlayingModal({ isOpen, onClose }) {
     activeEqPreset,
     applyEqPreset,
     EQ_PRESETS,
+    audioQuality,
+    changeAudioQuality,
+    AUDIO_QUALITIES,
     trackError,
     retryPlayback,
     volume,
@@ -79,6 +83,7 @@ export function NowPlayingModal({ isOpen, onClose }) {
 
   const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
   const [eqMenuOpen, setEqMenuOpen] = useState(false);
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [sharedToast, setSharedToast] = useState(false);
 
   // Close full player on Escape key
@@ -201,6 +206,52 @@ export function NowPlayingModal({ isOpen, onClose }) {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Audio Bitrate Quality Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setQualityMenuOpen(!qualityMenuOpen)}
+              className={`px-2.5 py-1.5 rounded-2xl border transition-all flex items-center gap-1 text-[11px] font-mono font-bold ${
+                audioQuality === '320'
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                  : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white'
+              }`}
+              title="Stream Audio Quality (Bitrate)"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>{audioQuality}k</span>
+            </button>
+
+            {qualityMenuOpen && (
+              <div className="absolute right-0 mt-2 w-52 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 animate-in fade-in space-y-1">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold px-2 block py-1">
+                  STREAM BITRATE QUALITY
+                </span>
+                {AUDIO_QUALITIES.map((q) => (
+                  <button
+                    key={q.id}
+                    onClick={() => {
+                      changeAudioQuality(q.id);
+                      setQualityMenuOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 rounded-xl text-left text-xs font-bold transition-all flex items-center justify-between ${
+                      audioQuality === q.id
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div>
+                      <div>{q.label}</div>
+                      <div className={`text-[10px] ${audioQuality === q.id ? 'text-slate-900' : 'text-slate-500'}`}>
+                        {q.desc}
+                      </div>
+                    </div>
+                    {audioQuality === q.id && <Check className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Equalizer Preset Toggle */}
           <div className="relative">
             <button

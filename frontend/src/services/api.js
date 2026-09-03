@@ -76,7 +76,7 @@ export default {
     apiRequest(`/music/search?q=${encodeURIComponent(q)}&language=${encodeURIComponent(language)}&year=${encodeURIComponent(year)}&category=${encodeURIComponent(category)}`),
   getSearchSuggestions: (q) => apiRequest(`/music/suggestions?q=${encodeURIComponent(q)}`),
   getTrendingMusic: () => apiRequest('/music/trending'),
-  getMusicStream: (videoId) => apiRequest(`/music/stream/${videoId}`),
+  getMusicStream: (videoId, quality = '320') => apiRequest(`/music/stream/${encodeURIComponent(videoId)}?quality=${encodeURIComponent(quality || '320')}`),
   getMusicLyrics: (track, artist) => apiRequest(`/music/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist || '')}`),
   getMusicDownloadUrl: (videoId, title) => `${API_BASE}/music/download/${encodeURIComponent(videoId)}?title=${encodeURIComponent(title || 'song')}`,
   getAlbums: (q = '') => apiRequest(`/music/albums${q ? `?q=${encodeURIComponent(q)}` : ''}`),
