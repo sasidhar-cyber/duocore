@@ -27,6 +27,17 @@ export function StatsModal() {
     }
   }, [isStatsOpen]);
 
+  useEffect(() => {
+    if (!isStatsOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeStats();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isStatsOpen, closeStats]);
+
   if (!isStatsOpen) return null;
 
   return (

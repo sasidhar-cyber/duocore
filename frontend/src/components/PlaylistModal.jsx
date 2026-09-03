@@ -25,6 +25,17 @@ export function PlaylistModal() {
   const [creating, setCreating] = useState(false);
   const [addedMap, setAddedMap] = useState({});
 
+  React.useEffect(() => {
+    if (!isPlaylistModalOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closePlaylistModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaylistModalOpen, closePlaylistModal]);
+
   if (!isPlaylistModalOpen || !playlistTrackToAdd) return null;
 
   const handleCreate = async (e) => {

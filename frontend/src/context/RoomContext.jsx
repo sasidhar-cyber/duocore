@@ -365,7 +365,7 @@ export function RoomProvider({ children }) {
     };
 
     const handleCallDeclined = (data) => {
-      alert(`${data.username || 'Partner'} declined the call.`);
+      console.log(`[Call] ${data.username || 'Partner'} declined the call.`);
       setActiveCallModal(null);
       setIncomingCall(null);
     };

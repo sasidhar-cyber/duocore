@@ -38,6 +38,17 @@ export function QueueDrawer() {
   const [savingPlaylist, setSavingPlaylist] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  React.useEffect(() => {
+    if (!isQueueOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeQueue();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isQueueOpen, closeQueue]);
+
   if (!isQueueOpen) return null;
 
   // Calculate total duration

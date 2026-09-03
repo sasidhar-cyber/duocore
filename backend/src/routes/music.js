@@ -826,4 +826,414 @@ router.get('/lyrics', async (req, res) => {
   }
 });
 
+// ===========================
+// 16. FAVORITES
+// ===========================
+router.get('/favorites', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({ favorites: [] });
+  }
+
+  try {
+    const rows = db.prepare(`
+      SELECT track_id as id, title, artist, thumbnail, duration, album, created_at
+      FROM favorites
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `).all(req.user.id);
+
+    res.json({ favorites: rows });
+  } catch (err) {
+    console.error('[Favorites Get Error]:', err.message);
+    res.status(500).json({ error: 'Failed to fetch favorites', favorites: [] });
+  }
+});
+
+router.post('/favorites', requireAuth, (req, res) => {
+  const { trackId, title, artist, thumbnail, duration, album } = req.body;
+  if (!trackId || !title) {
+    return res.status(400).json({ error: 'trackId and title are required' });
+  }
+
+  try {
+    const id = 'fav-' + uuidv4().slice(0, 8);
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT OR REPLACE INTO favorites (id, user_id, track_id, title, artist, thumbnail, duration, album, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, req.user.id, String(trackId), String(title), String(artist || 'Unknown Artist'), String(thumbnail || ''), String(duration || '3:30'), String(album || 'Single'), now);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'favorites').catch(() => {});
+
+    res.json({ success: true, message: 'Track added to favorites' });
+  } catch (err) {
+    console.error('[Favorites Add Error]:', err.message);
+    res.status(500).json({ error: 'Failed to add favorite' });
+  }
+});
+
+router.delete('/favorites/:trackId', requireAuth, (req, res) => {
+  const { trackId } = req.params;
+
+  try {
+    db.prepare('DELETE FROM favorites WHERE user_id = ? AND track_id = ?').run(req.user.id, trackId);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'favorites').catch(() => {});
+
+    res.json({ success: true, message: 'Track removed from favorites' });
+  } catch (err) {
+    console.error('[Favorites Delete Error]:', err.message);
+    res.status(500).json({ error: 'Failed to remove favorite' });
+  }
+});
+
+// ===========================
+// 17. PLAYLISTS
+// ===========================
+router.get('/playlists', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({ playlists: [] });
+  }
+
+  try {
+    const playlists = db.prepare(`
+      SELECT p.*, COUNT(ps.id) as song_count
+      FROM playlists p
+      LEFT JOIN playlist_songs ps ON ps.playlist_id = p.id
+      WHERE p.user_id = ?
+      GROUP BY p.id
+      ORDER BY p.updated_at DESC
+    `).all(req.user.id);
+
+    res.json({ playlists });
+  } catch (err) {
+    console.error('[Playlists Get Error]:', err.message);
+    res.status(500).json({ error: 'Failed to fetch playlists', playlists: [] });
+  }
+});
+
+router.post('/playlists', requireAuth, (req, res) => {
+  const { name, description = '', cover_url = '' } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Playlist name is required' });
+  }
+
+  try {
+    const id = 'pl-' + uuidv4().slice(0, 8);
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO playlists (id, user_id, name, description, cover_url, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, req.user.id, name.trim(), description, cover_url, now, now);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'playlists').catch(() => {});
+
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+    res.json({ success: true, playlist });
+  } catch (err) {
+    console.error('[Playlists Create Error]:', err.message);
+    res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+router.get('/playlists/:id', optionalAuth, (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+
+    const songs = db.prepare(`
+      SELECT track_id as id, title, artist, thumbnail, duration, album, position, added_at
+      FROM playlist_songs
+      WHERE playlist_id = ?
+      ORDER BY position ASC, added_at ASC
+    `).all(id);
+
+    res.json({ playlist: { ...playlist, songs } });
+  } catch (err) {
+    console.error('[Playlist Detail Error]:', err.message);
+    res.status(500).json({ error: 'Failed to fetch playlist' });
+  }
+});
+
+router.put('/playlists/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const { name, description, cover_url } = req.body;
+
+  try {
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist not found or permission denied' });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE playlists
+      SET name = COALESCE(?, name),
+          description = COALESCE(?, description),
+          cover_url = COALESCE(?, cover_url),
+          updated_at = ?
+      WHERE id = ?
+    `).run(name ? name.trim() : null, description !== undefined ? description : null, cover_url !== undefined ? cover_url : null, now, id);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'playlists').catch(() => {});
+
+    const updated = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+    res.json({ success: true, playlist: updated });
+  } catch (err) {
+    console.error('[Playlist Update Error]:', err.message);
+    res.status(500).json({ error: 'Failed to update playlist' });
+  }
+});
+
+router.delete('/playlists/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist not found or permission denied' });
+    }
+
+    db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ?').run(id);
+    db.prepare('DELETE FROM playlists WHERE id = ?').run(id);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'playlists').catch(() => {});
+    syncTableToCloud(db, 'playlist_songs').catch(() => {});
+
+    res.json({ success: true, message: 'Playlist deleted' });
+  } catch (err) {
+    console.error('[Playlist Delete Error]:', err.message);
+    res.status(500).json({ error: 'Failed to delete playlist' });
+  }
+});
+
+router.post('/playlists/:playlistId/songs', requireAuth, (req, res) => {
+  const { playlistId } = req.params;
+  const { trackId, title, artist, thumbnail, duration, album } = req.body;
+
+  if (!trackId || !title) {
+    return res.status(400).json({ error: 'trackId and title are required' });
+  }
+
+  try {
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(playlistId, req.user.id);
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist not found or permission denied' });
+    }
+
+    const id = 'pls-' + uuidv4().slice(0, 8);
+    const now = new Date().toISOString();
+    const count = db.prepare('SELECT COUNT(*) as count FROM playlist_songs WHERE playlist_id = ?').get(playlistId).count || 0;
+
+    db.prepare(`
+      INSERT OR REPLACE INTO playlist_songs (id, playlist_id, track_id, title, artist, thumbnail, duration, album, position, added_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, playlistId, String(trackId), String(title), String(artist || 'Unknown Artist'), String(thumbnail || ''), String(duration || '3:30'), String(album || 'Single'), count, now);
+
+    db.prepare('UPDATE playlists SET updated_at = ? WHERE id = ?').run(now, playlistId);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'playlist_songs').catch(() => {});
+    syncTableToCloud(db, 'playlists').catch(() => {});
+
+    res.json({ success: true, message: 'Song added to playlist' });
+  } catch (err) {
+    console.error('[Playlist Song Add Error]:', err.message);
+    res.status(500).json({ error: 'Failed to add song to playlist' });
+  }
+});
+
+router.delete('/playlists/:playlistId/songs/:trackId', requireAuth, (req, res) => {
+  const { playlistId, trackId } = req.params;
+
+  try {
+    const playlist = db.prepare('SELECT * FROM playlists WHERE id = ? AND user_id = ?').get(playlistId, req.user.id);
+    if (!playlist) {
+      return res.status(404).json({ error: 'Playlist not found or permission denied' });
+    }
+
+    db.prepare('DELETE FROM playlist_songs WHERE playlist_id = ? AND track_id = ?').run(playlistId, trackId);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'playlist_songs').catch(() => {});
+
+    res.json({ success: true, message: 'Song removed from playlist' });
+  } catch (err) {
+    console.error('[Playlist Song Delete Error]:', err.message);
+    res.status(500).json({ error: 'Failed to remove song from playlist' });
+  }
+});
+
+// ===========================
+// 18. LISTENING HISTORY & STATS
+// ===========================
+router.post('/history', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({ success: true, recorded: false });
+  }
+
+  const { trackId, title, artist, thumbnail, duration, album, playDurationSeconds = 0 } = req.body;
+  if (!trackId || !title) {
+    return res.status(400).json({ error: 'trackId and title are required' });
+  }
+
+  try {
+    const id = 'hist-' + uuidv4().slice(0, 8);
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO listening_history (id, user_id, track_id, title, artist, thumbnail, duration, album, played_at, play_duration_seconds)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, req.user.id, String(trackId), String(title), String(artist || 'Unknown Artist'), String(thumbnail || ''), String(duration || '3:30'), String(album || 'Single'), now, parseInt(playDurationSeconds, 10) || 0);
+
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'listening_history').catch(() => {});
+
+    res.json({ success: true, recorded: true });
+  } catch (err) {
+    console.error('[History Add Error]:', err.message);
+    res.status(500).json({ error: 'Failed to record history' });
+  }
+});
+
+router.get('/history', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({ history: [] });
+  }
+
+  const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
+
+  try {
+    const history = db.prepare(`
+      SELECT id as historyId, track_id as id, title, artist, thumbnail, duration, album, played_at, play_duration_seconds
+      FROM listening_history
+      WHERE user_id = ?
+      ORDER BY played_at DESC
+      LIMIT ?
+    `).all(req.user.id, limit);
+
+    res.json({ history });
+  } catch (err) {
+    console.error('[History Get Error]:', err.message);
+    res.status(500).json({ error: 'Failed to fetch history', history: [] });
+  }
+});
+
+router.delete('/history/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+
+  try {
+    db.prepare('DELETE FROM listening_history WHERE id = ? AND user_id = ?').run(id, req.user.id);
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'listening_history').catch(() => {});
+    res.json({ success: true, message: 'History item removed' });
+  } catch (err) {
+    console.error('[History Delete Error]:', err.message);
+    res.status(500).json({ error: 'Failed to remove history item' });
+  }
+});
+
+router.delete('/history', requireAuth, (req, res) => {
+  try {
+    db.prepare('DELETE FROM listening_history WHERE user_id = ?').run(req.user.id);
+    const { syncTableToCloud } = require('../db/cloudSync');
+    syncTableToCloud(db, 'listening_history').catch(() => {});
+    res.json({ success: true, message: 'All listening history cleared' });
+  } catch (err) {
+    console.error('[History Clear Error]:', err.message);
+    res.status(500).json({ error: 'Failed to clear history' });
+  }
+});
+
+router.get('/stats', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({
+      totalPlays: 0,
+      totalMinutes: 0,
+      topArtists: [],
+      topTracks: []
+    });
+  }
+
+  try {
+    const totalCount = db.prepare('SELECT COUNT(*) as count FROM listening_history WHERE user_id = ?').get(req.user.id).count || 0;
+    const totalSeconds = db.prepare('SELECT SUM(play_duration_seconds) as total FROM listening_history WHERE user_id = ?').get(req.user.id).total || 0;
+
+    const topArtists = db.prepare(`
+      SELECT artist, COUNT(*) as plays
+      FROM listening_history
+      WHERE user_id = ?
+      GROUP BY artist
+      ORDER BY plays DESC
+      LIMIT 5
+    `).all(req.user.id);
+
+    const topTracks = db.prepare(`
+      SELECT track_id as id, title, artist, thumbnail, COUNT(*) as plays
+      FROM listening_history
+      WHERE user_id = ?
+      GROUP BY track_id
+      ORDER BY plays DESC
+      LIMIT 5
+    `).all(req.user.id);
+
+    res.json({
+      totalPlays: totalCount,
+      totalMinutes: Math.round(totalSeconds / 60) || Math.round(totalCount * 3.5),
+      topArtists,
+      topTracks
+    });
+  } catch (err) {
+    console.error('[Stats Error]:', err.message);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ===========================
+// 19. DOWNLOAD AUDIO STREAM
+// ===========================
+router.get('/download/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  const title = String(req.query.title || 'song').replace(/[^a-zA-Z0-9_\-\. ]/g, '_').trim();
+
+  try {
+    const streamUrl = await resolveStream(videoId);
+    if (!streamUrl) {
+      return res.status(404).send('Audio stream not available for download.');
+    }
+
+    const audioRes = await axios({
+      method: 'GET',
+      url: streamUrl,
+      responseType: 'stream',
+      timeout: 15000,
+      headers: {
+        'User-Agent': JIOSAAVN_HEADERS['User-Agent']
+      }
+    });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${title}.mp4"`);
+    res.setHeader('Content-Type', audioRes.headers['content-type'] || 'audio/mp4');
+    if (audioRes.headers['content-length']) {
+      res.setHeader('Content-Length', audioRes.headers['content-length']);
+    }
+
+    audioRes.data.pipe(res);
+  } catch (err) {
+    console.error('[Download Error]:', err.message);
+    res.status(500).send('Error downloading audio file: ' + err.message);
+  }
+});
+
 module.exports = router;

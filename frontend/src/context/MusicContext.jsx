@@ -527,8 +527,9 @@ export function MusicProvider({ children }) {
   const playPlaylist = async (playlistId, shuffle = false) => {
     try {
       const res = await api.getPlaylist(playlistId);
-      if (res.tracks && res.tracks.length > 0) {
-        let list = [...res.tracks];
+      const songList = res.playlist?.songs || res.tracks || res.songs || [];
+      if (songList.length > 0) {
+        let list = [...songList];
         if (shuffle) list = list.sort(() => Math.random() - 0.5);
         playTrack(list[0], list);
       }

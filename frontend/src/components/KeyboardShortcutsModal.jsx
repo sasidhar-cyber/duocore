@@ -17,6 +17,17 @@ const SHORTCUTS = [
 export function KeyboardShortcutsModal() {
   const { isShortcutsHelpOpen, closeShortcutsHelp } = useMusic();
 
+  React.useEffect(() => {
+    if (!isShortcutsHelpOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeShortcutsHelp();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isShortcutsHelpOpen, closeShortcutsHelp]);
+
   if (!isShortcutsHelpOpen) return null;
 
   return (

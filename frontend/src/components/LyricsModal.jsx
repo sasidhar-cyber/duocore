@@ -84,6 +84,18 @@ export function LyricsModal() {
       .finally(() => setLoading(false));
   }, [isLyricsOpen, currentTrack?.id]);
 
+  // Global Escape key listener to close modal
+  useEffect(() => {
+    if (!isLyricsOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsLyricsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLyricsOpen, setIsLyricsOpen]);
+
   // Synchronize Active Line based on Current Time + Offset
   useEffect(() => {
     if (syncedLines.length === 0) return;
